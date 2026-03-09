@@ -46,16 +46,17 @@ def standardize_problem_for_simplex(
     original_objective_type = problem_data.get("objective", "min").lower()
 
     # 1. Chuẩn hóa hàm mục tiêu về "min"
-    if original_objective_type == "maximize":
+    if original_objective_type in ["maximize", "max"]:
         was_maximized = True
         problem_data["objective"] = "min"
         original_coeffs = problem_data.get("coeffs", [])
         problem_data["coeffs"] = [-c for c in original_coeffs]
         logs.append(f"Objective converted from MAX to MIN. Coefficients multiplied by -1: {problem_data['coeffs']}")
-    elif original_objective_type != "min":
+    elif original_objective_type not in ["minimize", "min"]:
         logs.append(f"ERROR (standardize): Invalid objective type '{original_objective_type}'. Expected 'min' or 'max'.")
         return None, False
     else:
+        problem_data["objective"] = "min" # Ép chắc chắn thành min nội bộ
         logs.append("Objective is already MIN.")
 
     # 2. Chuẩn hóa các ràng buộc về "<="

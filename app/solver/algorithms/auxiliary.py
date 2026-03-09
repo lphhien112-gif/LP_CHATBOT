@@ -4,7 +4,7 @@ from typing import Dict, List, Any, Tuple, Optional
 import numpy as np
 
 from .base_simplex_dictionary_solver import BaseSimplexDictionarySolver
-from .utils import standardize_problem_for_simplex
+from app.solver.utils import standardize_problem_for_simplex
 
 logger = logging.getLogger(__name__)
 

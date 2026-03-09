@@ -4,7 +4,7 @@ import re
 # Các biểu thức chính quy (Regex) để phân tích văn bản
 LP_PATTERNS = {
     "objective_keywords": r"(tối đa hóa|tối thiểu hóa|maximize|minimize|max|min)",
-    "subject_to_keywords": r"(với điều kiện|subject to|s\.t\.|st)",
+    "subject_to_keywords": r"(với điều kiện|subject to|s\.t\.|st|ràng buộc(:)?|điều kiện(:)?|với các ràng buộc)",
     "variable_coeff": r"(-?\s*\d*\.?\d*)\s*\*?\s*([a-zA-Z_][a-zA-Z0-9_]*)",
     "constraint_operator": r"(<=|>=|==|=|<|>|≤|≥)",
     "number": r"(-?\d+\.?\d*|-?\.\d+)"

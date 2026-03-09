@@ -1,9 +1,9 @@
-# /app/chatbot/nlp/nlp_parser.py
+# /app/nlp/parsers/rule_parser.py
 import re
 import logging
 from typing import Dict, List, Tuple, Optional, Any
-from .rule_templates import INTENT_PATTERNS, ENTITY_PATTERNS, OBJECTIVE_TYPE_KEYWORDS, CONSTRAINT_INDICATORS
-from .lp_parser import parse_expression_to_coeffs_map # Để parse các phần nhỏ
+from app.nlp.data.rule_templates import INTENT_PATTERNS, ENTITY_PATTERNS, OBJECTIVE_TYPE_KEYWORDS, CONSTRAINT_INDICATORS
+from .lp_parser import parse_expression_to_coeffs_map
 
 logger = logging.getLogger(__name__)
 

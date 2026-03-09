@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: lp_chatbot_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - SERVER_HOST=0.0.0.0
+      - LOG_LEVEL=WARNING
+      - REDIS_URL=redis://redis:6379/0
+      # - GOOGLE_API_KEY=${GOOGLE_API_KEY} # Truyền key từ môi trường host vào
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - lp_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lp_chatbot_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lp_network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  lp_network:
+    driver: bridge
+
+volumes:
+  redis_data:

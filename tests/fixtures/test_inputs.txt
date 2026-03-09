@@ -1,0 +1,97 @@
+# Danh sách các trường hợp kiểm thử (Test Cases) cho LP Chatbot Backend
+
+Dưới đây là các đầu vào (prompts) từ người dùng được phân loại theo từng kịch bản cụ thể để kiểm tra khả năng xử lý ngôn ngữ tự nhiên (NLP) và bộ giải toán (Solver) của hệ thống.
+
+---
+
+## 1. Bài toán Quy hoạch tuyến tính chuẩn (Standard LP)
+*Mục đích: Kiểm tra khả năng trích xuất hàm mục tiêu, biến số và các ràng buộc cơ bản.*
+
+- **Case 1 (Tối đa hóa - Bài toán sản xuất):** 
+  > "Một xưởng mộc sản xuất bàn và ghế. Mỗi cái bàn mang lại lợi nhuận 50$ và cần 2 giờ mộc, 1 giờ sơn. Mỗi cái ghế mang lại 30$ lợi nhuận, cần 1 giờ mộc và 1 giờ sơn. Xưởng có tối đa 40 giờ mộc và 30 giờ sơn mỗi tuần. Hãy tìm số lượng bàn ghế cần sản xuất để tối đa lợi nhuận."
+
+- **Case 2 (Tối thiểu hóa - Bài toán chi phí):**
+  > "Tôi cần tối thiểu hoá chi phí F = 4x1 + 6x2. Biết rằng phải thỏa mãn điều kiện: 2x1 + x2 >= 10, x1 + 3x2 >= 15. Và các biến x1, x2 phải lớn hơn hoặc bằng 0."
+
+---
+
+## 2. Bài toán có ràng buộc phức tạp (Dấu '=', '<=')
+*Mục đích: Kiểm tra việc NLP Parser bắt đúng các ranh giới phương trình (Equalities) và bất phương trình (Inequalities).*
+
+- **Case 3 (Bài toán pha chế có biến bằng):**
+  > "Hãy giải bài toán tìm giá trị lớn nhất của Z = 3x + 5y. Ràng buộc là x + y <= 100. Tuy nhiên, lượng x sản xuất ra phải bằng đúng 2 lần lượng y. Các biến không âm."
+
+- **Case 4 (Bài toán nhiều ràng buộc hỗn hợp):**
+  > "Max Z = 10x1 + 15x2 + 20x3. Điều kiện: x1 + x2 + x3 <= 100; x1 - x2 >= 10; x3 = 20."
+
+---
+
+## 3. Chỉ định Bộ giải cụ thể (Solver Routing Explicit)
+*Mục đích: Thử nghiệm module DialogManager có nhận diện chính xác từ khóa "Đơn hình" hoặc "PuLP" để định tuyến luồng code không.*
+
+- **Case 5 (Ép dùng Thuật toán Đơn hình / Simplex):**
+  > "Cho hàm mục tiêu f(x) = 2x1 + 3x2. Ràng buộc x1 + 2x2 <= 8 và 3x1 + x2 <= 9. Hãy giải bài toán này bằng thuật toán đơn hình và in ra bảng simplex."
+
+- **Case 6 (Ép dùng PuLP / Thư viện chuẩn):**
+  > "Tìm Min Z = 5x + 7y. Ràng buộc x + y >= 10. Dùng thư viện pulp để giải nhen."
+
+- **Case 6b (Ép dùng Phương pháp Đồ thị - Geometric):**
+  > "Giải bài toán sản xuất: Max 10x + 20y. Điều kiện 2x + y <= 100 và x + y <= 80. Hãy giải bằng phương pháp đồ thị và vẽ hình cho tôi."
+
+- **Case 6c (Ép dùng Đơn hình Dạng Tự điển - Simple Dictionary):**
+  > "Giải giúp tôi bằng thuật toán đơn hình dạng tự điển: Max Z = 3x1 + 2x2. Ràng buộc x1 + x2 <= 4 và 2x1 + x2 <= 5."
+
+- **Case 6d (Ép dùng Đơn hình với Quy tắc Bland - Tránh xoay vòng lỗi):**
+  > "Tôi có bài toán Max Z = 10x1 - 57x2 - 9x3 - 24x4. Điều kiện... Thôi dùng quy tắc Bland để giải cho an toàn đi."
+
+- **Case 6e (Ép dùng Đơn hình Hai Pha / Bài Toán Phụ chuẩn bị gốc):**
+  > "Hãy dùng phương pháp bài toán phụ (hai pha) để giải bài: Min Z = x1 + x2. Điều kiện -x1 + x2 <= -2 và x1 + 2x2 <= 4."
+
+---
+
+## 4. Trường hợp ngoại lệ (Edge Cases & Errors)
+*Mục đích: Đảm bảo Backend không bị crash (văng lỗi 500) mà trả về thông báo lỗi thân thiện.*
+
+- **Case 7 (Bài toán Vô nghiệm - Infeasible):**
+  > "Tìm Max Z = x + y. Ràng buộc x + y <= 5 và x + y >= 10. x, y >= 0." *(Khối lượng nghiệm rỗng)*
+
+- **Case 8 (Bài toán Không giới hạn - Unbounded):**
+  > "Tìm Max Z = 10x + 20y. Ràng buộc duy nhất là x - y >= 5. x, y >= 0." *(Có thể tăng Z lên vô cực)*
+
+---
+
+## 5. Tương tác Hội thoại đa bước (Conversational Memory)
+*Mục đích: Kiểm tra Database bộ nhớ tạm (Redis) của Chatbot.*
+
+- **Case 9 (Bổ sung ràng buộc):**
+  > *Bước 1 (User):* "Tôi muốn tối đa hoá lợi nhuận Z = 100x + 200y."
+  > *Bước 2 (Bot):* (Sẽ hỏi thiếu điều kiện)
+  > *Bước 3 (User):* "À quên, điều kiện là x + y <= 50 và x >= 10."
+
+- **Case 10 (Sửa đổi bài toán đang giải):**
+  > *Bước 1 (User):* "Giải bài: Max 5x + 3y. Điều kiện: 2x + y <= 20."
+  > *Bước 2 (Bot):* (Sẽ đưa ra nghiệm)
+  > *Bước 3 (User):* "Nếu đổi lợi nhuận hàm mục tiêu thành 10x + 3y thì sao? Định dạng lại và giải lại giúp mình."
+
+---
+
+## 6. Chitchat & Ngoài luồng (Out of domain)
+*Mục đích: Kiểm tra AI có từ chối khéo léo những câu hỏi không liên quan đến Toán học / Tối ưu hóa không.*
+
+- **Case 11 (Hỏi thời tiết / Kiến thức chung):**
+  > "Hôm nay thời tiết thế nào?"
+  > "Làm sao để nấu món phở bò ngon?"
+
+- **Case 12 (Chào hỏi thông thường):**
+  > "Chào buổi sáng, bạn có thể làm được những gì?"
+
+---
+
+## 7. Các bài toán Hỗn hợp / Phức Tạp (Complex Real-World)
+*Mục đích: Stress-test NLP Parser từ Gemini với những câu văn dài, bẫy chữ.*
+
+- **Case 13 (Bài toán tối ưu danh mục đầu tư tài chính - 4 Biến & Ràng buộc tỷ lệ):**
+  > "Mình có 500 triệu. Mình muốn đầu tư vào 4 kênh: Chứng khoán (x1), Trái phiếu (x2), Vàng (x3), và Gửi tiết kiệm (x4). Lợi nhuận dự kiến là 12% cho x1, 8% cho x2, 5% cho x3 và 4% cho x4. Hãy tìm Max Z = 0.12x1 + 0.08x2 + 0.05x3 + 0.04x4. Điều kiện: Tổng tiền đầu tư x1 + x2 + x3 + x4 = 500. Pháp luật cấm đầu tư chứng khoán quá mức nên x1 <= 200. Tiền gửi tiết kiệm phải bằng đúng hoặc lớn hơn tiền mua vàng, tức x4 >= x3. Giải bằng thuật toán Bland giúp mình nha."
+
+- **Case 14 (Bài báo cáo môn học nhiều ràng buộc lặp):**
+  > "Minimize Chi Phí C = 15x + 20y + 12z + 8w. Subject to: 10x + 5y + 2z >= 100 ; 2x - 3y + w = 50 ; x + y + z + w <= 300 ; z >= 15; w <= 40. Các biến >= 0. Cứ dùng solver mặc định nào nhanh nhất giải giùm tôi."

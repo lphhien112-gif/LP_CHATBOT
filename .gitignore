@@ -5,6 +5,17 @@ __pycache__/
 venv/
 # Test outputs
 test_outputs/
+test_results.md
+test_backend_output.txt
+
 # IDE files
 .vscode/
 .idea/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

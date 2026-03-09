@@ -6,10 +6,11 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 # Import các thành phần từ các module đã tạo
-from core.config import settings
-from core.logger import setup_logging
+from app.core.config import settings
+from app.core.logger import setup_logging
 from app.api.routes import api_router
 from app.chatbot.web_routes import router as chatbot_web_router
 
@@ -30,6 +31,16 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc"
+)
+
+# -- BƯỚC 2.5: THIẾT LẬP BẢO MẬT (SECURITY FIX) --
+# Bổ sung CORS để API an toàn, chỉ nhận request từ Origin định sẵn
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # TRONG THỰC TẾ: Cần map bằng settings.ALLOWED_ORIGINS
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 

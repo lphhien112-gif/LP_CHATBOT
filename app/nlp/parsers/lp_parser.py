@@ -1,9 +1,9 @@
-# /app/chatbot/nlp/lp_parser.py
+# /app/nlp/parsers/lp_parser.py
 import re
 import logging
 from typing import Dict, List, Tuple, Optional, Any
 
-from . import rule_templates
+from app.nlp.data import rule_templates
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,14 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
             objective_part = text_cleaned[objective_match.end():].strip()
             constraints_part = ""
 
-        objective_expr = re.sub(r"^[a-zA-Z0-9\s_]+\s*=\s*", "", objective_part, flags=re.IGNORECASE).strip()
+        # Cắt bớt phần sau dấu ; hoặc dấu . (chỉ cắt nếu . có khoảng trắng theo sau hoặc ở cuối chuỗi)
+        objective_part = re.split(r';|\.\s|\.$', objective_part)[0]
+
+        # Lọc chỉ giữ lại các thành phần toán học hợp lệ (biến, số, phép tính)
+        # Giữ lại cụm: Z =, f(x) =, số, biến chữ latin, phép -, +
+        objective_expr = re.sub(r"^[a-zA-Z0-9\s_\(\)]+\s*=\s*", "", objective_part, flags=re.IGNORECASE).strip()
+        # Loại bỏ các từ tiếng Việt hoặc ký tự thừa nằm sau biểu thức toán học
+        objective_expr = re.sub(r'[^a-zA-Z0-9\s\+\-\*\.].*$', '', objective_expr).strip()
         
         obj_coeffs_map, obj_vars = parse_expression_to_coeffs_map(objective_expr)
         if not obj_coeffs_map:
@@ -121,8 +128,8 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
             # 1. Expand compact non-negativity constraints first
             constraints_part = _expand_non_negativity_constraints(constraints_part)
             
-            # 2. Split into individual constraint lines using semicolon as a robust separator
-            constraint_lines = [line.strip() for line in re.split(r'[;]+', constraints_part) if line.strip()]
+            # 2. Split into individual constraint lines using punctuation or flow words
+            constraint_lines = [line.strip() for line in re.split(r'[;.,]|\bvà\b|\bvs\b|\bcòn\b', constraints_part, flags=re.IGNORECASE) if line.strip()]
             
             parsed_constraints = []
             for i, line in enumerate(constraint_lines):

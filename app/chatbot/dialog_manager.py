@@ -6,7 +6,7 @@ import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from .nlp import (
+from app.nlp import (
     parse_lp_problem_from_string,
     NlpParser,
     NlpGptParser
@@ -54,9 +54,10 @@ class DialogManager:
         }
         self._log("Trạng thái hội thoại đã được reset.")
 
-    def _is_problem_defined(self) -> bool:
-        """Kiểm tra xem đã có bài toán hoàn chỉnh trong bộ nhớ chưa."""
-        p = self.state.get("current_problem_definition", {})
+    def _is_problem_defined(self, p: Optional[Dict] = None) -> bool:
+        """Kiểm tra xem đã có bài toán hoàn chỉnh chưa."""
+        if p is None:
+            p = self.state.get("current_problem_definition", {})
         return bool(p and p.get("objective_type") and p.get("objective_coeffs_map"))
 
     def _convert_internal_to_solver_format(self, internal_def: Dict) -> Optional[Dict[str, Any]]:
@@ -206,7 +207,13 @@ class DialogManager:
             return self._finalize_response({"text_response": "Rất tiếc, có lỗi khi chuẩn bị dữ liệu để giải.", "allow_html": False})
 
         self._log(f"Bắt đầu giải bằng solver '{solver_name}'...")
-        solution, logs = dispatch_solver(solver_format, solver_name=solver_name)
+        # [PERFORMANCE FIX] Chạy tác vụ toán học nặng trên Threadpool để không chặn Event Loop (FastAPI)
+        from starlette.concurrency import run_in_threadpool
+        solution, logs = await run_in_threadpool(
+            dispatch_solver, 
+            solver_format, 
+            solver_name=solver_name
+        )
         
         # Lưu lại toàn bộ ngữ cảnh của lần giải này
         context = {"problem_definition": internal_def, "solution": solution, "logs": logs}
@@ -216,7 +223,22 @@ class DialogManager:
         response_parts = []
         if preamble: response_parts.append(f"<p>{preamble}</p>")
         response_parts.append(self._format_problem_summary(internal_def))
-        response_parts.append(self._format_solution_response(solution, solver_format, solver_name))
+        # Gọi LLM (Gemini) để dịch kết quả Toán học sang Văn xuôi Natural Language
+        llm_formatted_text = await self.gpt_nlp.format_solver_solution(internal_def, solution)
+        
+        # Fallback: Trả về kết quả thô kèm html tĩnh nếu LLM lỗi mạng
+        if not llm_formatted_text:
+             self._log("Fallback do gọi API LLM bị lỗi")
+             response_parts.append(self._format_solution_response(solution, solver_format, solver_name))
+        else:
+             # Gắn kết quả từ LLM vào Frontend
+             response_parts.append(f"<div class='markdown-body'>{llm_formatted_text}</div>")
+             
+             # Chèn biểu đồ ảnh nếu có
+             if solution and solution.get("plot_image_base64"):
+                  img_src = solution["plot_image_base64"]
+                  image_html = f"<br><br><div style='text-align: center;'><img src='{img_src}' alt='Biểu đồ giải bằng hình học' style='max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);' /></div>"
+                  response_parts.append(image_html)
         
         # Tạo gợi ý
         suggestions = ["Bắt đầu bài toán mới"]
@@ -272,10 +294,28 @@ class DialogManager:
 
         # Ưu tiên 3: Thử parse như một bài toán đầy đủ
         parsed_lp, parse_logs = self.lp_formula_parser(user_message)
+        print(f"DEBUG: Parsed LP result: {parsed_lp}")
+        print(f"DEBUG: is_problem_defined: {self._is_problem_defined(parsed_lp)}")
+        
         if parsed_lp and self._is_problem_defined(parsed_lp):
             self._log(f"Đã phân tích thành công bài toán từ chuỗi. Logs: {parse_logs}")
             self.state["current_problem_definition"] = parsed_lp
-            return await self._solve_current_problem("pulp_cbc")
+            
+            # Kiểm tra xem người dùng có yêu cầu solver cụ thể ngay trong cùng tin nhắn không
+            solver_to_use = "pulp_cbc" # Mặc định
+            msg_lower = user_message.lower()
+            
+            nlp_result = self.rule_based_nlp.parse_intent_and_entities(user_message)
+            if nlp_result.get("intent") == "request_specific_solver":
+                solver_to_use = self._map_solver_name(nlp_result.get("entities", {}).get("solver_name", ""))
+            else:
+                # Fallback nhanh nếu NLP parser bị trượt
+                if "đối ngẫu" in msg_lower: solver_to_use = "dual_simplex"
+                elif "hai pha" in msg_lower or "2 pha" in msg_lower: solver_to_use = "auxiliary"
+                elif "đơn hình" in msg_lower or "simplex" in msg_lower: solver_to_use = "simple_dictionary"
+                elif "đồ thị" in msg_lower or "hình học" in msg_lower: solver_to_use = "geometric"
+            
+            return await self._solve_current_problem(solver_to_use)
 
         # Ưu tiên 4: Phân tích ý định từ câu nói
         nlp_result = self.rule_based_nlp.parse_intent_and_entities(user_message)
@@ -294,7 +334,7 @@ class DialogManager:
             return self._finalize_response({"text_response": explanation, "allow_html": True, "suggestions": ["Quy tắc Bland là gì?", "Biến nhân tạo là gì?"]})
         
         # Mặc định: Dùng LLM để trò chuyện
-        if self.gpt_nlp.model:
+        if self.gpt_nlp.client:
             response_text = await self.gpt_nlp.handle_general_conversation(user_message, self.state["history"]) or "Xin lỗi, mình chưa hiểu ý bạn. Bạn có thể nói rõ hơn được không?"
             return self._finalize_response({"text_response": response_text, "suggestions": ["Giải bài toán mẫu"]})
         else:

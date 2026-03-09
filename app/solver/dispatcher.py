@@ -4,12 +4,11 @@ from typing import Dict, Any, Tuple, Optional, Callable, List
 # import functools # Không cần thiết nếu dùng lambda hoặc truyền trực tiếp
 
 # Import các hàm bao bọc solver đã được cập nhật/đổi tên
-from .pulp_cbc_solver import solve_with_pulp_cbc
-from .geometric_solver import solve_with_geometric_method
-from .simple_dictionary_solver import solve_with_simple_dictionary # Đã thay thế simplex_manual
-from .simplex_bland_solver import solve_with_simplex_bland
-# Giả sử file chứa AuxiliaryProblemSolver đã được đổi tên thành auxiliary_problem_solver.py
-from .auxiliary_problem_solver import solve_with_auxiliary_problem_simplex
+from .algorithms.pulp_cbc import solve_with_pulp_cbc
+from .algorithms.geometric import solve_with_geometric_method
+from .algorithms.simplex import solve_with_simple_dictionary
+from .algorithms.simplex_bland import solve_with_simplex_bland
+from .algorithms.auxiliary import solve_with_auxiliary_problem_simplex
 
 logger = logging.getLogger(__name__)
 
