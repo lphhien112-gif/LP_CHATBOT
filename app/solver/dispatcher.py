@@ -1,7 +1,7 @@
 # /app/solver/dispatcher.py
 import logging
 from typing import Dict, Any, Tuple, Optional, Callable, List
-# import functools # Không cần thiết nếu dùng lambda hoặc truyền trực tiếp
+from app.core.config import settings
 
 # Import các hàm bao bọc solver đã được cập nhật/đổi tên
 from .algorithms.pulp_cbc import solve_with_pulp_cbc
@@ -30,9 +30,11 @@ AVAILABLE_SOLVERS: Dict[str, SolverFunction] = {
 
 def dispatch_solver(
     problem_data: Dict[str, Any], # Sẽ nhận "Định dạng A"
-    solver_name: str = "pulp_cbc",
-    max_iterations: int = 50 # Tham số này sẽ được truyền cho các solver Simplex
+    solver_name: str = None,
+    max_iterations: int = None 
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    solver_name = solver_name or settings.DEFAULT_SOLVER
+    max_iterations = max_iterations or settings.MAX_ITERATIONS
     """
     Gọi solver được chỉ định để giải bài toán LP.
 

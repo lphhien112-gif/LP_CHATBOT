@@ -5,7 +5,7 @@
 Kiểm tra đầu vào:
 
 Nếu problem_data tồn tại: 
-    - Tuyệt vời! Dữ liệu đã có cấu trúc. API handler chỉ cần gán nó cho biến problem_dict để chuẩn bị giải.
+    - Dữ liệu đã có cấu trúc. API handler chỉ cần gán nó cho biến problem_dict để chuẩn bị giải.
 Nếu problem_text tồn tại: 
     - Đây chính là lúc utils.py được sử dụng. Code sẽ gọi hàm parse_lp_problem_from_text(request.problem_text). 
     - Hàm này sẽ đọc chuỗi văn bản và (khi được triển khai đầy đủ) sẽ trả về một dictionary problem_dict có cấu trúc chuẩn.
@@ -23,8 +23,9 @@ from typing import Dict, Any, Optional, List
 
 # Import các thành phần cần thiết
 from app.solver.dispatcher import dispatch_solver
-from app.chatbot.nlp.lp_parser import parse_lp_problem_from_string # Parser mới
+from app.nlp.parsers.lp_parser import parse_lp_problem_from_string # Parser mới
 from pydantic import BaseModel
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -123,8 +124,8 @@ async def solve_problem_api(request: SolveRequest = Body(...)): # Đổi tên h�
     Bạn cũng có thể chỉ định `solver_name` và `max_iterations`.
     """
     request_data = request.model_dump() # Sử dụng model_dump cho Pydantic v2+
-    solver_name_req = request_data.get("solver_name", "pulp_cbc") # Đổi tên biến
-    max_iterations_req = request_data.get("max_iterations", 50) # Đổi tên biến
+    solver_name_req = request_data.get("solver_name", settings.DEFAULT_SOLVER) # Đổi tên biến
+    max_iterations_req = request_data.get("max_iterations", settings.MAX_ITERATIONS) # Đổi tên biến
     logger.info(f"Received API request to solve problem with solver: {solver_name_req}, max_iterations: {max_iterations_req}")
     
     problem_dict_format_a: Optional[Dict[str, Any]] = None # Đổi tên biến

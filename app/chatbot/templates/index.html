@@ -1,397 +1,485 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" class="dark">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LP Chatbot Trợ lý AI</title>
+    <title>LP Chatbot — Trợ lý Quy hoạch Tuyến tính</title>
+    <meta name="description"
+        content="Chatbot AI chuyên giải quyết các bài toán Quy hoạch Tuyến tính (Linear Programming).">
 
-    <!-- Nhúng font chữ (Nunito) và icon -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
-
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/phosphor-icons"></script>
+
+    <!-- Thư viện KaTeX để hiển thị công thức Toán -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+
+    <!-- Thư viện Marked.js để convert Markdown -> HTML (bao gồm Table) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        surface: {
+                            900: '#111827',
+                            800: '#1F2937',
+                            700: '#374151',
+                            600: '#4B5563',
+                        },
+                        accent: { DEFAULT: '#6366f1', hover: '#4f46e5', light: '#a5b4fc' }
+                    },
+                    animation: {
+                        'fade-up': 'fadeUp 0.35s ease-out forwards',
+                        'pulse-dot': 'pulseDot 1.4s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        fadeUp: { '0%': { opacity: 0, transform: 'translateY(12px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+                        pulseDot: { '0%, 100%': { opacity: 0.3, transform: 'scale(0.8)' }, '50%': { opacity: 1, transform: 'scale(1)' } }
+                    }
+                }
+            }
+        }
+    </script>
 
     <style>
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        * {
+            box-sizing: border-box;
         }
 
-        @keyframes popIn {
-            0% {
-                opacity: 0;
-                transform: scale(0.9);
-            }
-
-            100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-        }
-
+        html,
         body {
-            font-family: 'Nunito', sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 1rem;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
         }
 
-        h1 {
-            color: #334155;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
         }
 
-        #chat-container {
-            width: 100%;
-            max-width: 600px;
-            background-color: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(10px);
-            border-radius: 1.5rem;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            height: 85vh;
-            max-height: 750px;
-            border: 1px solid rgba(255, 255, 255, 0.5);
-        }
-
-        #chat-messages {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        #chat-messages::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        #chat-messages::-webkit-scrollbar-track {
+        ::-webkit-scrollbar-track {
             background: transparent;
         }
 
-        #chat-messages::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 4px;
         }
 
-        #chat-messages::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4B5563;
         }
 
-        .message {
-            display: flex;
-            align-items: flex-end;
-            gap: 0.5rem;
-            max-width: 85%;
-            animation: fadeIn 0.4s ease-in-out;
-        }
-
-        .avatar {
-            width: 32px;
-            height: 32px;
+        /* Dot typing animation */
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #9ca3af;
             border-radius: 50%;
-            background-color: #e2e8f0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            animation: pulseDot 1.4s ease-in-out infinite;
         }
 
-        .avatar i {
-            font-size: 18px;
-            color: #475569;
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
         }
 
-        .text-content {
-            padding: 0.75rem 1rem;
-            border-radius: 1rem;
-            line-height: 1.5;
-            word-wrap: break-word;
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
         }
 
-        .user-message {
-            align-self: flex-end;
-            flex-direction: row-reverse;
+        /* Message animations */
+        .message-bubble {
+            animation: fadeUp 0.35s ease-out forwards;
         }
 
-        .user-message .text-content {
-            background: linear-gradient(to right, #3b82f6, #60a5fa);
-            color: white;
-            border-bottom-right-radius: 0.25rem;
-        }
-
-        .user-message .avatar {
-            background-color: #bfdbfe;
-        }
-
-        .user-message .avatar i {
-            color: #1e40af;
-        }
-
-        .bot-message {
-            align-self: flex-start;
-        }
-
-        .bot-message .text-content {
-            background-color: #ffffff;
-            color: #334155;
-            border-bottom-left-radius: 0.25rem;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-
-        /* Định dạng đậm và các thẻ khác trong tin nhắn bot */
-        .bot-message .text-content b,
-        .bot-message .text-content strong {
-            font-weight: 700;
-            color: #1e293b;
-        }
-
-        .bot-message .text-content ul {
-            list-style-type: disc;
-            padding-left: 20px;
-        }
-
-        .bot-message .text-content li {
-            margin-bottom: 0.25rem;
-        }
-
-
-        #chat-form {
-            display: flex;
-            padding: 1rem;
-            gap: 0.5rem;
-            border-top: 1px solid #e5e7eb;
-        }
-
-        #message-input {
-            flex-grow: 1;
-            border: 1px solid #d1d5db;
-            padding: 0.75rem 1rem;
-            border-radius: 9999px;
-            background-color: #f8fafc;
-            transition: all 0.2s ease;
-        }
-
-        #message-input:focus {
-            outline: none;
-            border-color: #60a5fa;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-            background-color: white;
-        }
-
-        #send-button {
-            background-color: #3b82f6;
-            color: white;
-            width: 48px;
-            height: 48px;
-            border: none;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            flex-shrink: 0;
-        }
-
-        #send-button:hover {
-            background-color: #2563eb;
-            transform: scale(1.05);
-        }
-
-        #send-button i {
-            font-size: 24px;
-        }
-
-        .suggestion-button {
-            background-color: #ffffff;
-            color: #3b82f6;
-            border: 1px solid #dbeafe;
-            padding: 0.5rem 1rem;
-            border-radius: 9999px;
-            cursor: pointer;
-            font-size: 0.875rem;
+        /* Bot message prose text */
+        .bot-text b,
+        .bot-text strong {
             font-weight: 600;
-            transition: all 0.2s ease;
-            animation: popIn 0.3s ease-out;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
+            color: #f3f4f6;
         }
 
-        .suggestion-button:hover {
-            background-color: #eff6ff;
-            border-color: #93c5fd;
-            transform: translateY(-2px);
+        .bot-text ul {
+            list-style: disc;
+            padding-left: 1.25rem;
+            margin-top: 0.5rem;
         }
 
-        #suggestion-area {
-            padding: 0 1.5rem 0.5rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+        .bot-text ol {
+            list-style: decimal;
+            padding-left: 1.25rem;
+            margin-top: 0.5rem;
+        }
+
+        .bot-text li {
+            margin-bottom: 0.3rem;
+        }
+
+        .bot-text p {
+            margin-bottom: 0.5rem;
+        }
+
+        .bot-text code {
+            background: #374151;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: #a5b4fc;
+        }
+
+        .bot-text pre {
+            background: #374151;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-top: 0.5rem;
+            font-size: 0.85em;
+            color: #d1fae5;
+        }
+
+        /* Markdown Table Styling */
+        .bot-text table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.75rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9em;
+            text-align: left;
+        }
+
+        .bot-text th,
+        .bot-text td {
+            border: 1px solid #4B5563;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .bot-text th {
+            background-color: #374151;
+            font-weight: 600;
+        }
+
+        .bot-text tr:nth-child(even) {
+            background-color: #1F2937;
+        }
+
+        .bot-text hr {
+            border-color: #4B5563;
+            margin: 1rem 0;
+        }
+
+        /* Input autogrow */
+        #message-input {
+            max-height: 160px;
+            overflow-y: auto;
+            resize: none;
+            scrollbar-width: none;
+        }
+
+        #message-input::-webkit-scrollbar {
+            display: none;
         }
     </style>
 </head>
 
-<body>
-    <h1 class="text-3xl font-bold text-center mb-4">
-        <i class="ph-sparkle-fill text-yellow-400"></i>
-        <span>Chatbot Quy Hoạch Tuyến Tính</span>
-        <i class="ph-sparkle-fill text-yellow-400"></i>
-    </h1>
+<body class="bg-surface-900 text-gray-100 flex flex-col h-screen">
 
-    <div id="chat-container">
-        <div id="chat-messages"></div>
-        <div id="suggestion-area"></div>
-        <form id="chat-form">
-            <input type="text" id="message-input" placeholder="Nhập bài toán hoặc câu hỏi..." autocomplete="off">
-            <button type="submit" id="send-button" aria-label="Gửi">
-                <i class="ph-paper-plane-tilt-fill"></i>
+    <!-- ════════════════ HEADER ════════════════ -->
+    <header
+        class="flex items-center justify-between px-5 py-3 border-b border-surface-700 flex-shrink-0 bg-surface-800/80 backdrop-blur-sm sticky top-0 z-10">
+        <div class="flex items-center gap-3">
+            <!-- Logo / Icon -->
+            <div class="w-9 h-9 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/30">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-sm font-semibold text-white leading-none">LP Chatbot</h1>
+                <p class="text-xs text-gray-400 mt-0.5">Trợ lý Quy hoạch Tuyến tính</p>
+            </div>
+        </div>
+        <!-- Status badge -->
+        <div id="status-badge" class="flex items-center gap-1.5 text-xs text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Sẵn sàng</span>
+        </div>
+    </header>
+
+    <!-- ════════════════ MESSAGES AREA ════════════════ -->
+    <main id="chat-messages" class="flex-1 overflow-y-auto scroll-smooth">
+        <div id="messages-inner" class="mx-auto max-w-2xl px-4 py-6 flex flex-col gap-5">
+            <!-- messages are injected here -->
+        </div>
+    </main>
+
+    <!-- ════════════════ SUGGESTION PILLS ════════════════ -->
+    <div id="suggestion-area" class="max-w-2xl mx-auto w-full px-4 pb-2 flex flex-wrap gap-2"></div>
+
+    <!-- ════════════════ INPUT BAR ════════════════ -->
+    <footer class="flex-shrink-0 px-4 pb-5 pt-2 bg-surface-900">
+        <form id="chat-form"
+            class="mx-auto max-w-2xl flex items-end gap-2 bg-surface-800 rounded-2xl border border-surface-700 px-4 py-3 shadow-xl focus-within:border-accent/60 focus-within:ring-1 focus-within:ring-accent/30 transition-all">
+            <textarea id="message-input" rows="1"
+                class="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none leading-relaxed"
+                placeholder="Nhập bài toán hoặc câu hỏi về LP..." autocomplete="off"></textarea>
+            <button type="submit" id="send-button"
+                class="flex-shrink-0 w-9 h-9 bg-accent hover:bg-accent-hover rounded-xl flex items-center justify-center transition-all duration-200 disabled:opacity-40 hover:shadow-lg hover:shadow-accent/30 active:scale-95"
+                aria-label="Gửi" disabled>
+                <!-- Arrow up icon -->
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
             </button>
         </form>
-    </div>
+        <p class="text-center text-xs text-gray-600 mt-2">Nhấn <kbd
+                class="px-1 py-0.5 rounded bg-surface-700 text-gray-400 border border-surface-600 text-xs">Enter</kbd>
+            để gửi &nbsp;·&nbsp; <kbd
+                class="px-1 py-0.5 rounded bg-surface-700 text-gray-400 border border-surface-600 text-xs">Shift+Enter</kbd>
+            để xuống dòng</p>
+    </footer>
 
     <script>
+        // ─── DOM Refs ──────────────────────────────────────────────────────────
+        const messagesInner = document.getElementById('messages-inner');
         const chatMessages = document.getElementById('chat-messages');
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message-input');
         const suggestionArea = document.getElementById('suggestion-area');
+        const sendButton = document.getElementById('send-button');
+        const statusBadge = document.getElementById('status-badge');
 
         let lastProblemContext = null;
+        let isWaiting = false;
 
-        messageInput.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
+        // ─── Textarea Auto-resize ──────────────────────────────────────────────
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
+            sendButton.disabled = messageInput.value.trim() === '';
+        });
+
+        // ─── Enter to submit ──────────────────────────────────────────────────
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!sendButton.disabled && !isWaiting)
+                    chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
             }
         });
 
-        chatForm.addEventListener('submit', async function (event) {
-            event.preventDefault();
-            const userMessageText = messageInput.value.trim();
-            if (!userMessageText) return;
+        // ─── Form Submit ──────────────────────────────────────────────────────
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = messageInput.value.trim();
+            if (!text || isWaiting) return;
             clearSuggestions();
-            sendMessageToServer(userMessageText);
             messageInput.value = '';
+            messageInput.style.height = 'auto';
+            sendButton.disabled = true;
+            sendMessageToServer(text);
         });
 
+        // ─── Set Loading State ──────────────────────────────────────────────────
+        function setWaiting(val) {
+            isWaiting = val;
+            if (val) {
+                statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span><span class="text-yellow-400">Đang phản hồi...</span>`;
+            } else {
+                statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span><span class="text-emerald-400">Sẵn sàng</span>`;
+            }
+        }
+
+        // ─── Send Message ─────────────────────────────────────────────────────
         async function sendMessageToServer(messageText) {
-            appendMessage(messageText, 'user');
-            const typingIndicator = appendMessage('...', 'bot', true);
+            appendUserMessage(messageText);
+            const typingRef = appendTypingIndicator();
+            setWaiting(true);
 
             try {
                 const formData = new FormData();
                 formData.append('message', messageText);
-                if (lastProblemContext) {
-                    formData.append('context', JSON.stringify(lastProblemContext));
-                }
+                if (lastProblemContext) formData.append('context', JSON.stringify(lastProblemContext));
 
                 const response = await fetch('/send_message', { method: 'POST', body: formData });
-                if (typingIndicator) typingIndicator.remove();
-                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+                typingRef.remove();
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                if (!response.body) throw new Error("Streaming not supported.");
 
-                const data = await response.json();
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let botMsgEl = null;
+                let textContainer = null;
+                let buffer = '';
 
-                if (data && data.bot_response) {
-                    appendMessage(data.bot_response.text_response, 'bot', false, data.bot_response.allow_html);
-                    if (data.bot_response.problem_context) {
-                        lastProblemContext = data.bot_response.problem_context;
-                    } else {
-                        // Reset context nếu server không trả về context mới (vd: khi bắt đầu lại)
-                        if (messageText.toLowerCase().includes("bài toán mới")) {
-                            lastProblemContext = null;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+
+                    for (const part of parts) {
+                        if (!part.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(part.substring(6));
+
+                            if (data.type === 'chunk' || data.type === 'chunk_escaped') {
+                                if (!botMsgEl) {
+                                    const els = appendBotMessage('', true);
+                                    botMsgEl = els.wrapper;
+                                    textContainer = els.textEl;
+                                }
+                                let content = data.content;
+                                if (data.type === 'chunk_escaped')
+                                    content = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+                                // Nếu chưa dùng Marked lúc đang stream thì append text thường
+                                textContainer.innerHTML += content;
+                                scrollToBottom();
+
+                            } else if (data.type === 'complete') {
+                                if (!botMsgEl) {
+                                    const els = appendBotMessage('', true);
+                                    botMsgEl = els.wrapper;
+                                    textContainer = els.textEl;
+                                }
+                                const botRes = data.result.bot_response;
+
+                                // Sử dụng marked.parse kết hợp với DOMPurify (nếu có) hoặc trực tiếp
+                                let finalHtml = botRes.text_response;
+                                // Để hỗ trợ table và toán, parse markdown nếu allow_html là True
+                                if (botRes.allow_html) {
+                                    finalHtml = marked.parse(botRes.text_response);
+                                } else {
+                                    // Nếu chỉ là text thường từ GPT, thêm br
+                                    finalHtml = finalHtml.replace(/\n/g, '<br>');
+                                }
+
+                                textContainer.innerHTML = finalHtml;
+
+                                // Gọi KaTeX auto-render trên phần tử này sau khi render nội dung
+                                if (window.renderMathInElement) {
+                                    renderMathInElement(textContainer, {
+                                        delimiters: [
+                                            { left: '$$', right: '$$', display: true },
+                                            { left: '$', right: '$', display: false },
+                                            { left: '\\(', right: '\\)', display: false },
+                                            { left: '\\[', right: '\\]', display: true }
+                                        ],
+                                        throwOnError: false
+                                    });
+                                }
+
+                                if (botRes.problem_context) lastProblemContext = botRes.problem_context;
+                                else if (messageText.toLowerCase().includes('bài toán mới')) lastProblemContext = null;
+
+                                if (botRes.suggestions?.length) displaySuggestions(botRes.suggestions);
+                                scrollToBottom(true);
+                            }
+                        } catch (err) {
+                            console.error('SSE parse error:', err);
                         }
                     }
-                    if (data.bot_response.suggestions && data.bot_response.suggestions.length > 0) {
-                        displaySuggestions(data.bot_response.suggestions);
-                    }
-                } else {
-                    throw new Error("Invalid response structure from server.");
                 }
-
             } catch (error) {
-                if (typingIndicator) typingIndicator.remove();
-                appendMessage('Ôi, không thể kết nối tới server. Bạn vui lòng thử lại nhé.', 'bot');
-                console.error('Network error:', error);
+                typingRef?.remove?.();
+                appendBotMessage('⚠️ Không thể kết nối tới server. Vui lòng thử lại.', false);
+                console.error(error);
+            } finally {
+                setWaiting(false);
+                messageInput.focus();
             }
         }
 
-        function appendMessage(content, sender, isTyping = false, allowHTML = false) {
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', `${sender}-message`);
-
-            const avatarDiv = document.createElement('div');
-            avatarDiv.classList.add('avatar');
-            avatarDiv.innerHTML = `<i class="${sender === 'bot' ? 'ph-robot' : 'ph-user'}"></i>`;
-
-            const textDiv = document.createElement('div');
-            textDiv.classList.add('text-content');
-
-            if (isTyping) {
-                textDiv.innerHTML = '<div class="flex items-center gap-1"><span class="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: -0.3s;"></span><span class="h-2 w-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: -0.15s;"></span><span class="h-2 w-2 bg-gray-400 rounded-full animate-bounce"></span></div>';
-            } else {
-                if (allowHTML) {
-                    textDiv.innerHTML = content.replace(/\n/g, '<br>');
-                } else {
-                    textDiv.textContent = content;
-                }
-            }
-
-            messageDiv.append(sender === 'user' ? textDiv : avatarDiv, sender === 'user' ? avatarDiv : textDiv);
-            chatMessages.appendChild(messageDiv);
-
-            chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
-            return messageDiv;
+        // ─── Render Helpers ───────────────────────────────────────────────────
+        function appendUserMessage(text) {
+            const el = document.createElement('div');
+            el.className = 'message-bubble flex justify-end';
+            el.innerHTML = `
+                <div class="max-w-[80%] flex flex-col items-end gap-1">
+                    <div class="bg-accent text-white text-sm px-4 py-2.5 rounded-2xl rounded-br-sm shadow-md leading-relaxed">${escapeHtml(text)}</div>
+                </div>`;
+            messagesInner.appendChild(el);
+            scrollToBottom();
         }
 
+        function appendBotMessage(htmlContent, streaming = false) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-bubble flex gap-3 items-start';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'flex-shrink-0 w-8 h-8 rounded-xl bg-accent/20 border border-accent/30 flex items-center justify-center mt-0.5';
+            avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-accent-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>`;
+
+            const textEl = document.createElement('div');
+            textEl.className = 'bot-text flex-1 text-sm text-gray-200 leading-relaxed bg-surface-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border border-surface-700';
+            if (htmlContent) textEl.innerHTML = htmlContent;
+
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(textEl);
+            messagesInner.appendChild(wrapper);
+            scrollToBottom();
+            return { wrapper, textEl };
+        }
+
+        function appendTypingIndicator() {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'message-bubble flex gap-3 items-start';
+            wrapper.innerHTML = `
+                <div class="flex-shrink-0 w-8 h-8 rounded-xl bg-accent/20 border border-accent/30 flex items-center justify-center mt-0.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-accent-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                </div>
+                <div class="bg-surface-800 border border-surface-700 rounded-2xl rounded-tl-sm px-4 py-3 flex gap-1.5 items-center h-10">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>`;
+            messagesInner.appendChild(wrapper);
+            scrollToBottom();
+            return wrapper;
+        }
+
+        // ─── Suggestions ─────────────────────────────────────────────────────
         function displaySuggestions(suggestions) {
             clearSuggestions();
-            suggestions.forEach(suggestion => {
-                const button = document.createElement('button');
-                button.classList.add('suggestion-button');
-                button.innerHTML = suggestion.includes("✨")
-                    ? `<i class="ph-sparkle-fill text-yellow-500"></i> ${suggestion.replace("✨", "").trim()}`
-                    : suggestion;
-                button.addEventListener('click', () => {
-                    const plainText = suggestion;
-                    clearSuggestions();
-                    sendMessageToServer(plainText);
-                });
-                suggestionArea.appendChild(button);
+            suggestions.forEach(text => {
+                const btn = document.createElement('button');
+                btn.className = 'px-3 py-1.5 text-xs font-medium rounded-full border border-surface-600 bg-surface-800 text-gray-300 hover:border-accent/60 hover:text-accent-light hover:bg-accent/10 transition-all duration-200 animate-fade-up';
+                btn.textContent = text.replace(/✨/g, '').trim();
+                btn.addEventListener('click', () => { clearSuggestions(); sendMessageToServer(text); });
+                suggestionArea.appendChild(btn);
             });
         }
 
-        function clearSuggestions() {
-            suggestionArea.innerHTML = '';
+        function clearSuggestions() { suggestionArea.innerHTML = ''; }
+
+        // ─── Utils ────────────────────────────────────────────────────────────
+        function escapeHtml(text) {
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br>');
         }
 
-        window.addEventListener('load', () => {
-            appendMessage('Xin chào! Tớ là Trợ lý AI cho Quy hoạch Tuyến tính. Bạn cần tớ giúp gì nào?', 'bot');
-            displaySuggestions(['Giải bài toán mẫu', '✨ Kể một câu chuyện bài toán', 'Biến bù là gì?']);
-        });
+        function scrollToBottom(smooth = false) {
+            chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+        }
 
+        // ─── Welcome Message ─────────────────────────────────────────────────
+        window.addEventListener('load', () => {
+            appendBotMessage('Xin chào! Tôi là <strong>LP Chatbot</strong> — trợ lý AI chuyên về Quy hoạch Tuyến tính.<br><br>Tôi có thể giúp bạn:<br>• Nhận diện và giải bài toán LP từ văn bản tự nhiên<br>• Giải thích các bước giải (Simplex, CBC...)<br>• Vẽ đồ thị miền khả thi (Geometric method)<br><br>Hãy thử bắt đầu với một câu hỏi hoặc bài toán! 🚀', false);
+            displaySuggestions(['Giải bài toán mẫu', 'Giải thích Simplex là gì?', 'Biến bù là gì?', 'Bài toán không khả thi là sao?']);
+        });
     </script>
 </body>
 

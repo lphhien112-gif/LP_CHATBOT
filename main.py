@@ -22,11 +22,23 @@ logger = logging.getLogger(__name__)
 
 
 # -- BƯỚC 2: KHỞI TẠO ỨNG DỤNG FASTAPI --
+from contextlib import asynccontextmanager
+from app.core.redis import redis_manager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Khởi tạo các tài nguyên (như Redis) trước khi server nhận requests
+    await redis_manager.init_redis()
+    yield # Server chạy trong thời gian này
+    # Đóng kết nối khi server shutdown
+    await redis_manager.close()
+
 logger.info("Initializing FastAPI application...")
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.PROJECT_VERSION,
     debug=settings.DEBUG,
+    lifespan=lifespan,
     # Cấu hình đường dẫn cho tài liệu API (Swagger UI)
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
@@ -37,10 +49,10 @@ app = FastAPI(
 # Bổ sung CORS để API an toàn, chỉ nhận request từ Origin định sẵn
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # TRONG THỰC TẾ: Cần map bằng settings.ALLOWED_ORIGINS
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_methods=settings.ALLOWED_METHODS,
+    allow_headers=settings.ALLOWED_HEADERS,
 )
 
 
@@ -48,8 +60,8 @@ app.add_middleware(
 # Dòng này rất quan trọng, nó cho phép FastAPI phục vụ các tệp CSS, JS, hình ảnh...
 # từ thư mục 'static' tại đường dẫn '/static'.
 # Ví dụ: trình duyệt có thể truy cập /static/css/style.css
-app.mount("/static", StaticFiles(directory="static"), name="static")
-logger.info("Static files directory mounted at /static.")
+app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
+logger.info(f"Static files directory mounted at /{settings.STATIC_DIR}.")
 
 
 # -- BƯỚC 4: BAO GỒM (INCLUDE) CÁC ROUTER --
@@ -71,8 +83,8 @@ async def read_root():
     Endpoint gốc, tự động chuyển hướng người dùng đến giao diện chat.
     `include_in_schema=False` để ẩn nó khỏi tài liệu API.
     """
-    logger.info("Root endpoint '/' accessed, redirecting to '/chat'.")
-    return RedirectResponse(url="/chat")
+    logger.info(f"Root endpoint '/' accessed, redirecting to '{settings.DEFAULT_REDIRECT_URL}'.")
+    return RedirectResponse(url=settings.DEFAULT_REDIRECT_URL)
 
 
 # -- BƯỚC 6: KHỞI CHẠY SERVER (KHI CHẠY TRỰC TIẾP TỆP NÀY) --

@@ -4,7 +4,7 @@ import os
 # Set up path to import app modules
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from app.chatbot.nlp.lp_parser import parse_lp_problem_from_string
+from app.nlp.parsers.lp_parser import parse_lp_problem_from_string
 
 def get_test_cases():
     with open('test_inputs.txt', 'r', encoding='utf-8') as f:

@@ -20,6 +20,7 @@ class BaseSimplexDictionarySolver(ABC):
     def __init__(self, problem_data_standardized: Dict[str, Any], objective_key_in_dict: str = 'z_obj'):
         self.problem_data: Dict[str, Any] = problem_data_standardized # Dữ liệu đã được chuẩn hóa
         self.logs: List[str] = []
+        self.step_by_step_md: List[str] = [] # Lưu trữ lời giải từng bước dạng Markdown/LaTeX
 
         # Dữ liệu đầu vào đã được chuẩn hóa, nên objective sẽ là "min"
         self.current_objective_type: str = self.problem_data.get("objective", "min").lower()
@@ -123,6 +124,82 @@ class BaseSimplexDictionarySolver(ABC):
 
         self._log(log_str)
 
+    def _format_var_latex(self, var_name: str) -> str:
+        import re
+        match = re.match(r"^([a-zA-Z]+)(\d+)$", var_name)
+        if match:
+            return f"{match.group(1)}_{{{match.group(2)}}}"
+        return var_name
+
+    def _format_expr_latex(self, expr_dict: Dict[str, float]) -> str:
+        parts = []
+        const_val = expr_dict.get('const', 0.0)
+        
+        if abs(const_val) > self.epsilon or not any(abs(val) > self.epsilon for name, val in expr_dict.items() if name != 'const'):
+            parts.append(f"{const_val:g}")
+
+        sorted_vars = sorted(
+            [var for var in expr_dict if var != 'const' and abs(expr_dict[var]) > self.epsilon],
+            key=lambda v_name: self.all_vars_ordered.index(v_name) if v_name in self.all_vars_ordered else float('inf')
+        )
+
+        for var_name in sorted_vars:
+            coeff = expr_dict[var_name]
+            abs_coeff = abs(coeff)
+            current_sign = "-" if coeff < 0 else "+"
+            
+            formatted_var = self._format_var_latex(var_name)
+            
+            term_str = ""
+            if abs(abs_coeff - 1.0) < self.epsilon:
+                term_str = formatted_var
+            else:
+                term_str = f"{abs_coeff:g}{formatted_var}"
+
+            if not parts or (len(parts) == 1 and (parts[0].strip() == "0" or parts[0].strip() == "0.0")):
+                 parts = [f"{current_sign.strip()}{term_str}"] if current_sign == "-" else [term_str]
+            else:
+                parts.append(f" {current_sign} {term_str}")
+        
+        if not parts: return "0"
+        result = "".join(parts).strip()
+        if result.startswith("+"): 
+            result = result[1:].strip()
+        if result.startswith(" "): result = result[1:]
+        return result
+
+    def _generate_tableau_md(self, phase_info: Optional[str] = None):
+        """Tạo bảng Simplex Tableau dạng Markdown/LaTeX từ Dictionary hiện tại."""
+        phase_str = f" **({phase_info})**" if phase_info else ""
+        if self.iteration_count == 0:
+            md = f"#### 📝 Hệ phương trình (Dictionary) ban đầu:\n\n"
+        else:
+            md = f"#### 🔄 Vòng lặp {self.iteration_count}{phase_str}:\n\n"
+        
+        md += "$$\n\\begin{aligned}\n"
+        
+        # Dòng mục tiêu (z)
+        obj_key = self.current_objective_key
+        if obj_key in self.dictionary:
+            expr_str = self._format_expr_latex(self.dictionary[obj_key])
+            md += f"z &= {expr_str} \\\\\n"
+        else:
+            md += f"z &= 0 \\\\\n"
+
+        # Các dòng biến cơ sở
+        sorted_basic = sorted(
+            [bv for bv in self.basic_vars if bv in self.dictionary and bv != obj_key],
+            key=lambda v: self.all_vars_ordered.index(v) if v in self.all_vars_ordered else float('inf')
+        )
+        
+        for bv in sorted_basic:
+            expr_str = self._format_expr_latex(self.dictionary[bv])
+            formatted_bv = self._format_var_latex(bv)
+            md += f"{formatted_bv} &= {expr_str} \\\\\n"
+            
+        md += "\\end{aligned}\n$$\n"
+        self.step_by_step_md.append(md)
+
 
     def _build_initial_dictionary_common_setup(self):
         # self.decision_vars_names được lấy từ problem_data_standardized["variables_names_for_title_only"]
@@ -165,6 +242,11 @@ class BaseSimplexDictionarySolver(ABC):
         entering_var = candidate_entering_vars[0]
 
         coeff_val_in_obj = obj_expr.get(entering_var, 0.0)
+        
+        # Log markdown
+        var_tex = self._format_var_latex(entering_var)
+        self.step_by_step_md.append(f"**Chọn biến vào:** ${var_tex}$ (có hệ số âm ${coeff_val_in_obj:g}$ trong hàm mục tiêu).\n")
+
         self._log(f"Selected Entering (Bland for Min Objective): {entering_var} (coeff in obj '{self.current_objective_key}': {coeff_val_in_obj:.4g}, index: {self.all_vars_ordered.index(entering_var)})")
         return entering_var
 
@@ -217,6 +299,11 @@ class BaseSimplexDictionarySolver(ABC):
         # Quy tắc Bland: Nếu có nhiều biến cùng tỷ lệ nhỏ nhất, chọn biến có chỉ số nhỏ nhất
         candidate_leaving_vars_for_min_ratio.sort(key=lambda v_name: self.all_vars_ordered.index(v_name))
         leaving_var = candidate_leaving_vars_for_min_ratio[0]
+
+        # Log markdown
+        ratio_logs = "\n".join([f"- Dòng **${self._format_var_latex(bv)}$**: $\\frac{{{self.dictionary.get(bv, {}).get('const', 0.0):g}}}{{{-self.dictionary.get(bv, {}).get(entering_var, 0.0):g}}} = {self.dictionary.get(bv, {}).get('const', 0.0) / -self.dictionary.get(bv, {}).get(entering_var, 0.0):g}$" for bv in sorted_basic_vars if bv != self.current_objective_key and self.dictionary.get(bv) and self.dictionary.get(bv).get(entering_var, 0.0) < -self.epsilon])
+        leaving_tex = self._format_var_latex(leaving_var)
+        self.step_by_step_md.append(f"**Kiểm tra tỉ số $\\frac{{b_i}}{{a_{{ij}}}}$:**\n{ratio_logs}\n\n**Chọn biến ra:** ${leaving_tex}$ (vì có tỉ số không âm nhỏ nhất $\\theta = {min_ratio:g}$).\n---\n")
 
         self._log(f"Selected Leaving (Bland): {leaving_var} (min_ratio: {min_ratio:.4g}, index: {self.all_vars_ordered.index(leaving_var)})")
         return leaving_var
@@ -313,6 +400,8 @@ class BaseSimplexDictionarySolver(ABC):
             self._log(f"Objective value from dictionary ({self.current_objective_key}) = {solution['objective_value']:.4g}")
         self._log("Final values for decision variables:")
         for var, val in solution["variables"].items(): self._log(f"  - {var} = {val:.4g}")
+        
+        solution["step_by_step_md"] = self.step_by_step_md
         
         return solution
 

@@ -39,41 +39,14 @@ Luồng xử lý từ đầu đến cuối diễn ra theo thứ tự sau:
 Dưới đây là biểu đồ mô tả luồng chu chuyển dữ liệu giữa các thành phần.
 
 ```mermaid
-sequenceDiagram
-    actor User
-    participant Frontend as Web UI
-    participant API as FastAPI Router
-    participant DM as Dialog Manager
-    participant NLP as OpenAI API (Extractor)
-    participant Solver as LP Solver Engine
-    participant NLP2 as OpenAI API (Explainer)
-
-    User->>Frontend: Nhập dữ liệu đề bài tự nhiên
-    Frontend->>API: POST /chat/stream (Tạo luồng kết nối SSE)
-    API->>DM: Khởi tạo luồng xử lý Dialog
-    
-    rect rgb(30, 41, 59)
-        Note right of DM: Bước 1: AI Phân tích cú pháp Data
-        DM->>NLP: Yêu cầu trích xuất Entity Model ra JSON
-        NLP-->>DM: LP Problem Formatted JSON 
-    end
-    
-    rect rgb(20, 50, 40)
-        Note right of DM: Bước 2: Thuật toán máy tính
-        DM->>Solver: Gửi JSON bài toán (Dispatch)
-        Solver->>Solver: Chuẩn hóa & Tính toán (Iterations)
-        Solver-->>DM: Result Dictionary + Mảng biến đổi toán học LaTeX
-    end
-    
-    rect rgb(50, 30, 50)
-        Note right of DM: Bước 3: Diễn giải & Hiển thị Web
-        DM-->>Frontend: [Stream Chunk] Trả về Markdown phương trình LaTeX
-        DM->>NLP2: Gửi Prompt Final Explanation + Nhiệm vụ
-        NLP2-->>DM: [Stream Chunk] Token giải thích lời tự nhiên 
-        DM-->>Frontend: [Stream Chunk] Kết hợp token giải thích vào màn hình UI
-    end
-    
-    Frontend-->>User: Hiển thị giao diện kết quả đầy đủ
+flowchart TD
+    User([Người dùng]) --> UI[UI / Chat Interface]
+    UI --> API[Backend API]
+    API --> ReqProc[Request Processing]
+    ReqProc --> Solver[Solver]
+    Solver --> ResProc[Result Processing]
+    ResProc --> Response[Response]
+    Response --> User
 ```
 
 ---

@@ -2,36 +2,52 @@
 
 import logging
 import sys
-from .config import settings # Import settings từ config.py cùng thư mục
+import os
+from logging.handlers import RotatingFileHandler
+from .config import settings
+
+LOG_DIR  = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 def setup_logging():
     """
     Thiết lập cấu hình logging cho toàn bộ ứng dụng.
+    - StreamHandler: in ra console (stdout)
+    - RotatingFileHandler: ghi ra logs/app.log (max 5 MB, lưu 3 bản cũ)
     """
-    # Lấy root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(settings.LOG_LEVEL) # Đặt mức log từ cấu hình
+    os.makedirs(LOG_DIR, exist_ok=True)
 
-    # Xóa các handler hiện có để tránh log bị lặp lại nếu hàm này được gọi nhiều lần
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.LOG_LEVEL)
+
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
-    # Tạo một StreamHandler để log ra console (stdout)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(settings.LOG_LEVEL)
-
-    # Tạo formatter và gán nó cho handler
     formatter = logging.Formatter(
         fmt=settings.LOG_FORMAT,
         datefmt=settings.LOG_DATE_FORMAT
     )
+
+    # Handler 1: Console
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(settings.LOG_LEVEL)
     console_handler.setFormatter(formatter)
 
-    # Thêm handler vào root logger
-    root_logger.addHandler(console_handler)
+    # Handler 2: File (rotating, max 5 MB, 3 bản lưu)
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8"
+    )
+    file_handler.setLevel(settings.LOG_LEVEL)
+    file_handler.setFormatter(formatter)
 
-    # Log một thông điệp để xác nhận logging đã được thiết lập
-    logging.info(f"Logging setup complete. Log level: {settings.LOG_LEVEL}")
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+    logging.info(f"Logging setup complete. Log level: {settings.LOG_LEVEL}. File: {LOG_FILE}")
+
 
     # Ví dụ về cách log từ các module khác:
     # import logging

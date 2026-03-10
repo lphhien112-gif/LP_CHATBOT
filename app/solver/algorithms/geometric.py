@@ -92,7 +92,7 @@ def _plot_feasible_region(
 
     line_x_coords_plot = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 200)
 
-    cmap = plt.cm.get_cmap('viridis') # Sử dụng colormap khác
+    cmap = plt.colormaps['viridis']  # Updated: plt.cm.get_cmap() is deprecated in Matplotlib 3.9+
     num_total_colors = cmap.N if hasattr(cmap, 'N') else 10
 
     for i, constr in enumerate(constraints_to_draw):

@@ -110,7 +110,7 @@ git push origin feature/nhanh-cua-ban
 
 ---
 
-## ⚡ Tóm Tắt Nhanh Quy Trình Chuẩn (Cheatsheet)
+## Tóm Tắt Nhanh Quy Trình Chuẩn (Cheatsheet)
 
 1. `git checkout main` và `git pull` tải bản mới nhất về nhánh main cục bộ.
 2. `git checkout -b feature/tên-nhánh` để tạo và di chuyển sang nhánh làm việc.
