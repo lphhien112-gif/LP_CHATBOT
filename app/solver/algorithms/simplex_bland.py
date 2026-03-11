@@ -43,7 +43,7 @@ class SimplexBlandSolver(BaseSimplexDictionarySolver):
                 self._log(f"CRITICAL ERROR (SimplexBlandSolver): Constraint '{constr.get('name', i+1)}' received type '{constr.get('op')}' but expected '<=' after standardization.")
                 return False
 
-            slack_var_name = f"s_b{i+1}" # Tên biến bù có thể khác để tránh trùng lặp nếu có nhiều solver
+            slack_var_name = f"w{i+1}" # Tên biến bù theo chuẩn w1, w2...
             self.slack_vars_names.append(slack_var_name)
             if slack_var_name not in self.all_vars_ordered:
                 self.all_vars_ordered.append(slack_var_name)
@@ -59,6 +59,7 @@ class SimplexBlandSolver(BaseSimplexDictionarySolver):
 
         self._log(f"SimplexBlandSolver: All variables ordered after slack: {self.all_vars_ordered}")
         self._log_dictionary(phase_info="Initial Build (Standardized, Bland)")
+        # Xóa dòng self._generate_tableau_md ở đây để chờ gen chung vào vòng lặp
         return True
 
     # _select_entering_variable và _select_leaving_variable được kế thừa từ BaseSimplexDictionarySolver,
@@ -134,6 +135,13 @@ class SimplexBlandSolver(BaseSimplexDictionarySolver):
         if not self._build_initial_dictionary():
             return self._extract_solution("ErrorInSetup"), self.logs
 
+        # Thêm header giải thích quy tắc Bland cho Markdown
+        self.step_by_step_md.insert(0, "\\textbf{Phương pháp xoay Bland:}\n\n"
+                                       "\\textbf{Chọn biến vào:} Trong số các biến không cơ sở có hệ số âm ($G < 0$) \\\\\n"
+                                       "Chọn \\textbf{biến có chỉ số nhỏ nhất} ($x_1, x_2, x_3, w_1, w_2$)\n\n"
+                                       "\\textbf{Chọn biến ra:} Y như đơn hình tính $\\frac{b_i}{a_{ij}} (=0)$\n\n"
+                                       "\\textbf{\\underline{VD:}}\n")
+
         initial_feasibility_check_var = self._find_leaving_var_for_phase1_simple()
         if initial_feasibility_check_var is not None:
             self._log(f"Initial dictionary not feasible (e.g., {initial_feasibility_check_var} has negative constant). Running Simple Phase 1 (Bland).")
@@ -157,12 +165,21 @@ class SimplexBlandSolver(BaseSimplexDictionarySolver):
             entering_var = self._select_entering_variable() # Kế thừa từ BaseSimplex (đã là Bland)
             if not entering_var:
                 self._log("Optimization Phase (Bland): Optimal solution found.")
+                self._generate_tableau_md(phase_info="Final Optimal")
                 return self._extract_solution("Optimal"), self.logs
 
             leaving_var = self._select_leaving_variable(entering_var) # Kế thừa từ BaseSimplex (đã là Bland)
             if not leaving_var:
                 self._log(f"Optimization Phase (Bland): Problem is UNBOUNDED for entering var {entering_var}.")
+                self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var)
                 return self._extract_solution("Unbounded"), self.logs
+
+            # Gọi render tableau ở đây, sau khi đã chọn được entering và leaving var, trước khi pivot
+            if opt_phase_iter == 1 and getattr(self, "current_phase_info", None) != "Phase 1 (Feasibility - Bland)":
+               # Bỏ bảng dict ban đầu chưa render
+               pass 
+            
+            self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var, leaving_var=leaving_var)
 
             if not self._perform_pivot(entering_var, leaving_var):
                  self._log("Optimization Phase (Bland) FAILED: Pivot operation failed.")

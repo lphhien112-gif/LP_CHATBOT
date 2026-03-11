@@ -131,12 +131,12 @@ class BaseSimplexDictionarySolver(ABC):
             return f"{match.group(1)}_{{{match.group(2)}}}"
         return var_name
 
-    def _format_expr_latex(self, expr_dict: Dict[str, float]) -> str:
+    def _format_expr_latex(self, expr_dict: Dict[str, float], highlight_var: Optional[str] = None) -> str:
         parts = []
         const_val = expr_dict.get('const', 0.0)
         
         if abs(const_val) > self.epsilon or not any(abs(val) > self.epsilon for name, val in expr_dict.items() if name != 'const'):
-            parts.append(f"{const_val:g}")
+            parts.append(f"{const_val:g}".replace('.', ','))
 
         sorted_vars = sorted(
             [var for var in expr_dict if var != 'const' and abs(expr_dict[var]) > self.epsilon],
@@ -149,42 +149,53 @@ class BaseSimplexDictionarySolver(ABC):
             current_sign = "-" if coeff < 0 else "+"
             
             formatted_var = self._format_var_latex(var_name)
+            is_highlight = (highlight_var and var_name == highlight_var)
+            
+            coeff_str = f"{abs_coeff:g}".replace('.', ',')
             
             term_str = ""
             if abs(abs_coeff - 1.0) < self.epsilon:
                 term_str = formatted_var
             else:
-                term_str = f"{abs_coeff:g}{formatted_var}"
+                term_str = f"{coeff_str}{formatted_var}"
 
-            if not parts or (len(parts) == 1 and (parts[0].strip() == "0" or parts[0].strip() == "0.0")):
-                 parts = [f"{current_sign.strip()}{term_str}"] if current_sign == "-" else [term_str]
+            if not parts or (len(parts) == 1 and parts[0] in ["0", "0,0"]):
+                 sign_str = current_sign if current_sign == "-" else ""
+                 if is_highlight:
+                     if sign_str: 
+                         sign_str = f"\\overset{{\\downarrow}}{{{sign_str}}} "
+                     else:
+                         term_str = f"\\overset{{\\downarrow}}{{{term_str}}}"
+                 
+                 parts = [f"{sign_str}{term_str}".strip()]
             else:
-                parts.append(f" {current_sign} {term_str}")
+                if is_highlight:
+                    sign_str = f"\\overset{{\\downarrow}}{{{current_sign}}}"
+                else:
+                    sign_str = current_sign
+                parts.append(f" {sign_str} {term_str}")
         
         if not parts: return "0"
         result = "".join(parts).strip()
-        if result.startswith("+"): 
-            result = result[1:].strip()
-        if result.startswith(" "): result = result[1:]
+        if result.startswith("+ "): result = result[2:]
         return result
 
-    def _generate_tableau_md(self, phase_info: Optional[str] = None):
-        """Tạo bảng Simplex Tableau dạng Markdown/LaTeX từ Dictionary hiện tại."""
-        phase_str = f" **({phase_info})**" if phase_info else ""
-        if self.iteration_count == 0:
-            md = f"#### 📝 Hệ phương trình (Dictionary) ban đầu:\n\n"
-        else:
-            md = f"#### 🔄 Vòng lặp {self.iteration_count}{phase_str}:\n\n"
-        
-        md += "$$\n\\begin{aligned}\n"
+    def _generate_tableau_md(self, phase_info: Optional[str] = None, entering_var: Optional[str] = None, leaving_var: Optional[str] = None):
+        """Tạo bảng Simplex Tableau dạng Markdown/LaTeX từ Dictionary hiện tại.
+        Hỗ trợ đánh dấu biến vào (entering) và biến ra (leaving).
+        """
+        md = "\n\\[\n\\begin{array}{rrl}\n"
         
         # Dòng mục tiêu (z)
         obj_key = self.current_objective_key
         if obj_key in self.dictionary:
-            expr_str = self._format_expr_latex(self.dictionary[obj_key])
-            md += f"z &= {expr_str} \\\\\n"
+            base_expr_str = self._format_expr_latex(self.dictionary[obj_key], highlight_var=entering_var)
+            
+            md += f"& z &= {base_expr_str} \\\\\n"
+            md += "\\hline\n"
         else:
-            md += f"z &= 0 \\\\\n"
+            md += f"& z &= 0 \\\\\n"
+            md += "\\hline\n"
 
         # Các dòng biến cơ sở
         sorted_basic = sorted(
@@ -192,12 +203,24 @@ class BaseSimplexDictionarySolver(ABC):
             key=lambda v: self.all_vars_ordered.index(v) if v in self.all_vars_ordered else float('inf')
         )
         
+        ratio_details = getattr(self, 'latest_ratio_details', {}) if entering_var else {}
+
         for bv in sorted_basic:
             expr_str = self._format_expr_latex(self.dictionary[bv])
             formatted_bv = self._format_var_latex(bv)
-            md += f"{formatted_bv} &= {expr_str} \\\\\n"
+            prefix = "\\leftarrow" if (leaving_var and bv == leaving_var) else ""
             
-        md += "\\end{aligned}\n$$\n"
+            ratio_str = ""
+            if bv in ratio_details:
+                const_val, coeff_val, ratio_val = ratio_details[bv]
+                const_s = f"{const_val:g}".replace('.', ',')
+                coeff_s = f"{coeff_val:g}".replace('.', ',')
+                ratio_s = f"{ratio_val:g}".replace('.', ',')
+                ratio_str = f" \\quad \\frac{{{const_s}}}{{{coeff_s}}} = {ratio_s}"
+                
+            md += f"{prefix} & {formatted_bv} &= {expr_str}{ratio_str} \\\\\n"
+            
+        md += "\\end{array}\n\\]\n"
         self.step_by_step_md.append(md)
 
 
@@ -242,10 +265,6 @@ class BaseSimplexDictionarySolver(ABC):
         entering_var = candidate_entering_vars[0]
 
         coeff_val_in_obj = obj_expr.get(entering_var, 0.0)
-        
-        # Log markdown
-        var_tex = self._format_var_latex(entering_var)
-        self.step_by_step_md.append(f"**Chọn biến vào:** ${var_tex}$ (có hệ số âm ${coeff_val_in_obj:g}$ trong hàm mục tiêu).\n")
 
         self._log(f"Selected Entering (Bland for Min Objective): {entering_var} (coeff in obj '{self.current_objective_key}': {coeff_val_in_obj:.4g}, index: {self.all_vars_ordered.index(entering_var)})")
         return entering_var
@@ -256,6 +275,7 @@ class BaseSimplexDictionarySolver(ABC):
         candidate_leaving_vars_for_min_ratio: List[str] = []
 
         self._log(f"Calculating ratios for entering variable '{entering_var}':")
+        self.latest_ratio_details = {}
 
         # Sắp xếp các biến cơ sở để đảm bảo tính nhất quán khi chọn biến rời nếu có nhiều tỷ lệ bằng nhau (mặc dù Bland sẽ xử lý sau)
         sorted_basic_vars = sorted(
@@ -282,6 +302,7 @@ class BaseSimplexDictionarySolver(ABC):
 
                 # Chỉ xét tỷ lệ không âm (cho phép bằng 0 để xử lý suy biến)
                 if ratio >= -self.epsilon: # Dùng -epsilon để bao gồm cả trường hợp bằng 0
+                    self.latest_ratio_details[basic_var_name] = (constant_term, -coeff_entering_in_row, ratio)
                     self._log(f"  - Row '{basic_var_name}': const={constant_term:.4g}, coeff_entering={coeff_entering_in_row:.4g}, ratio = {ratio:.4g}")
                     if ratio < min_ratio - self.epsilon: # Tìm tỷ lệ nhỏ nhất
                         min_ratio = ratio
@@ -299,11 +320,6 @@ class BaseSimplexDictionarySolver(ABC):
         # Quy tắc Bland: Nếu có nhiều biến cùng tỷ lệ nhỏ nhất, chọn biến có chỉ số nhỏ nhất
         candidate_leaving_vars_for_min_ratio.sort(key=lambda v_name: self.all_vars_ordered.index(v_name))
         leaving_var = candidate_leaving_vars_for_min_ratio[0]
-
-        # Log markdown
-        ratio_logs = "\n".join([f"- Dòng **${self._format_var_latex(bv)}$**: $\\frac{{{self.dictionary.get(bv, {}).get('const', 0.0):g}}}{{{-self.dictionary.get(bv, {}).get(entering_var, 0.0):g}}} = {self.dictionary.get(bv, {}).get('const', 0.0) / -self.dictionary.get(bv, {}).get(entering_var, 0.0):g}$" for bv in sorted_basic_vars if bv != self.current_objective_key and self.dictionary.get(bv) and self.dictionary.get(bv).get(entering_var, 0.0) < -self.epsilon])
-        leaving_tex = self._format_var_latex(leaving_var)
-        self.step_by_step_md.append(f"**Kiểm tra tỉ số $\\frac{{b_i}}{{a_{{ij}}}}$:**\n{ratio_logs}\n\n**Chọn biến ra:** ${leaving_tex}$ (vì có tỉ số không âm nhỏ nhất $\\theta = {min_ratio:g}$).\n---\n")
 
         self._log(f"Selected Leaving (Bland): {leaving_var} (min_ratio: {min_ratio:.4g}, index: {self.all_vars_ordered.index(leaving_var)})")
         return leaving_var
@@ -329,8 +345,8 @@ class BaseSimplexDictionarySolver(ABC):
         new_entering_var_expr: Dict[str, float] = {}
         # Hằng số: const_mới = const_cũ_dòng_rời / (-hệ_số_xoay)
         new_entering_var_expr['const'] = leaving_var_expr.get('const', 0.0) / (-pivot_element_coeff)
-        # Biến rời trở thành phi cơ sở: coeff = 1 / (-hệ_số_xoay)
-        new_entering_var_expr[leaving_var] = 1.0 / (-pivot_element_coeff)
+        # Biến rời trở thành phi cơ sở: coeff = 1 / hệ_số_xoay (toán học: -LV / -P = LV / P)
+        new_entering_var_expr[leaving_var] = 1.0 / pivot_element_coeff
         # Các biến phi cơ sở khác trong dòng rời: coeff_mới = coeff_cũ / (-hệ_số_xoay)
         for var_name, coeff_val in leaving_var_expr.items():
             if var_name != 'const' and var_name != entering_var: # Không thêm chính entering_var
@@ -401,6 +417,30 @@ class BaseSimplexDictionarySolver(ABC):
         self._log("Final values for decision variables:")
         for var, val in solution["variables"].items(): self._log(f"  - {var} = {val:.4g}")
         
+        def _append_conclusion_md():
+            if solution["status"] == "Optimal":
+                non_basic_zeros = []
+                for var in self.non_basic_vars:
+                    if var in self.all_vars_ordered:
+                        non_basic_zeros.append(f"{self._format_var_latex(var)} = 0")
+                basic_vals = []
+                for var in self.basic_vars:
+                    if var in self.all_vars_ordered and var != self.current_objective_key:
+                        val = self.dictionary.get(var, {}).get('const', 0.0)
+                        val_s = f"{val:g}".replace('.', ',')
+                        basic_vals.append(f"{self._format_var_latex(var)} = {val_s}")
+                
+                all_vals_str = ", ".join(non_basic_zeros + basic_vals)
+                
+                obj_val_s = "0"
+                if solution["objective_value"] is not None:
+                    obj_val_s = f"{solution['objective_value']:g}".replace('.', ',')
+                    
+                md = f"Cho ${all_vals_str}$ \\\\\n"
+                md += f"GTTƯ: $z = {obj_val_s}$\n"
+                self.step_by_step_md.append(md)
+
+        _append_conclusion_md()
         solution["step_by_step_md"] = self.step_by_step_md
         
         return solution

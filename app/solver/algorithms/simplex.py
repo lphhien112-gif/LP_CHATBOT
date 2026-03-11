@@ -65,7 +65,7 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
 
         self._log(f"SimpleDictionarySolver: All variables ordered after slack: {self.all_vars_ordered}")
         self._log_dictionary(phase_info="Initial Build (Standardized)")
-        self._generate_tableau_md(phase_info="Initial Dictionary")
+        # Không generate_tableau_md ở đây, sẽ generate trong vòng lặp chính
         return True
 
     def _select_entering_variable(self) -> Optional[str]:
@@ -97,7 +97,7 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
             return None
 
         # Log markdown
-        self.step_by_step_md.append(f"**Chọn biến vào (Entering Variable):** ${entering_var}$ (hệ số âm nhất ${most_negative_coeff:.4g}$ trong dòng mục tiêu theo Dantzig).\n")
+        self.step_by_step_md.append(f" Chọn biến vào (Entering Variable): ${entering_var}$ (hệ số âm nhất ${most_negative_coeff:.4g}$)\n")
 
         self._log(f"Selected Entering (Dantzig for Min Objective): {entering_var} (coeff in {self.current_objective_key}: {most_negative_coeff:.4g}, index: {self.all_vars_ordered.index(entering_var)})")
         return entering_var
@@ -146,11 +146,17 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
         while phase1_iter < max_phase1_iterations:
             phase1_iter += 1; self.iteration_count +=1
             self._log_dictionary(phase_info=self.current_phase_info)
-            if phase1_iter > 1: self._generate_tableau_md(phase_info=self.current_phase_info)
             
             leaving_var = self._find_leaving_var_for_phase1_simple()
-            if leaving_var is None: self._log("Simple Phase 1 completed. Dictionary is feasible."); return "Feasible"
+            if leaving_var is None: 
+                self._generate_tableau_md(phase_info=self.current_phase_info)
+                self._log("Simple Phase 1 completed. Dictionary is feasible.")
+                return "Feasible"
+                
             entering_var = self._find_entering_var_for_phase1_simple(leaving_var)
+            
+            self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var, leaving_var=leaving_var)
+            
             if entering_var is None: self._log("Simple Phase 1 FAILED. Problem likely infeasible."); return "Infeasible"
             if not self._perform_pivot(entering_var, leaving_var):
                 self._log("Simple Phase 1 FAILED: Pivot operation failed."); return "ErrorInPivot"
@@ -187,8 +193,6 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
         while opt_phase_iter < remaining_iterations:
             opt_phase_iter += 1; self.iteration_count += 1
             self._log_dictionary(phase_info=self.current_phase_info)
-            if opt_phase_iter > 1 or getattr(self, "current_phase_info", None) == "Phase 1 (Feasibility)":
-                self._generate_tableau_md(phase_info=self.current_phase_info)
 
             entering_var = self._select_entering_variable() # Sử dụng Dantzig (đã ghi đè cho min)
             if not entering_var:
@@ -200,7 +204,10 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
             leaving_var = self._select_leaving_variable(entering_var) # Sử dụng Bland tie-breaker từ lớp cha
             if not leaving_var:
                 self._log(f"Optimization Phase: Problem is UNBOUNDED for entering var {entering_var}.")
+                self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var)
                 return self._extract_solution("Unbounded"), self.logs
+
+            self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var, leaving_var=leaving_var)
 
             if not self._perform_pivot(entering_var, leaving_var):
                  self._log("Optimization Phase FAILED: Pivot operation failed.")
