@@ -34,7 +34,7 @@ from app.nlp.ai.prompts import (
 logger = logging.getLogger(__name__)
 
 class OpenAiClient:
-    def __init__(self, api_key: Optional[str] = os.getenv("OPENAI_API_KEY"), model_name: str = os.getenv("MODEL_NAME", "gpt-4o-mini")):
+    def __init__(self, api_key: Optional[str] = os.getenv("OPENAI_API_KEY"), model_name: str = os.getenv("MODEL_NAME")):
         """
         Khởi tạo parser sử dụng OpenAI.
         :param api_key: Khóa API cho OpenAI (nên dùng môi trường OPENAI_API_KEY).

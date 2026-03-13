@@ -1,0 +1,8 @@
+{
+  "status": "Optimal",
+  "objective_value": 36.0,
+  "variables": {
+    "x1": 2.0,
+    "x2": 6.0
+  }
+}

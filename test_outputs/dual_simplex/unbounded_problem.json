@@ -1,0 +1,8 @@
+{
+  "status": "Unbounded",
+  "variables": {
+    "x1": 1.0,
+    "x2": 0.0
+  },
+  "objective_value": null
+}
