@@ -1,126 +1,72 @@
-# Luồng Hoạt Động và Cấu Trúc Dự Án LP Chatbot
+# Luồng hoạt động của Hệ thống LP_Chatbot
 
-## I. Luồng Hoạt Động Chính của Ứng Dụng
+Tài liệu này mô tả chi tiết cách hệ thống LP_Chatbot hoạt động, từ lúc người dùng nhập tin nhắn bằng ngôn ngữ tự nhiên cho đến khi nhận được kết quả giải hệ phương trình Quy hoạch tuyến tính (Linear Programming).
 
-Sơ đồ này mô tả các bước chính khi người dùng tương tác với chatbot để giải một bài toán Quy hoạch Tuyến tính (LP).
+---
+
+## 1. Mô tả tổng quan
+
+LP_Chatbot sử dụng một luồng **"Pipeline"** khép kín được điều phối tập trung bởi `DialogManager`. 
+
+Khi người dùng gửi một bài toán, hệ thống không gọi AI để giải toán trực tiếp (do AI Language Model dễ tính toán lượng giác và đại số sai). Thay vào đó, AI chỉ được sử dụng để **"Hiểu"** (Extract & Parse) đề bài tự nhiên thành một cấu trúc dữ liệu JSON chặt chẽ. Cấu trúc này sau đó được chuyển cho một hệ thống **"Máy tính toán"** (LP Solver Engine) chuyên dụng bằng Python để giải chính xác tuyệt đối từng bước. 
+
+Cuối cùng, các Log toán học (bảng Tableau / Dictionary) được trả về kết hợp với một lần gọi AI phụ trợ để diễn giải ngữ nghĩa cho người dùng dễ hiểu.
+
+---
+
+## 2. Các bước xử lý chính
+
+Luồng xử lý từ đầu đến cuối diễn ra theo thứ tự sau:
+
+1. **User Input:** Người dùng nhập tin nhắn/đề bài trên giao diện Web (ví dụ: *"Giải bài toán max Z = x1 + x2, với x1 <= 5 ..."*).
+2. **FastAPI Endpoint:** Client Frontend gọi API xuống hệ thống thông qua giao thức truyền phát Server-Sent Events (SSE) tại endpoint `/chat/stream`.
+3. **Dialog Manager:** Tiếp nhận request, trích xuất đoạn hội thoại đang diễn ra (Session/Context) từ bộ nhớ hệ thống.
+4. **NLP Processing (Extraction):** Khởi tạo Prompt (kèm bài toán) lên OpenAI API để bóc tách thông tin hàm mục tiêu, các hệ số, các ràng buộc và định dạng ép kiểu thành JSON Schema tiêu chuẩn.
+5. **LP Problem Validation:** Kiểm tra tính hợp lệ của JSON trả về.
+6. **LP Solver (Thuật toán lõi):** 
+   - Chuẩn hóa bài toán (Standardize) về dạng cơ sở chung.
+   - Dispatch tới thuật toán giải (Simplex Dictionary, Bland, Geometric, PuLP).
+   - LP Solver thực thi giải và sinh ra nghiệm tối ưu. Đồng thời log lại lộ trình từng bước giải dưới dạng toán học LaTeX System of Equations (`\begin{aligned}`).
+7. **Response Streaming & Explanation:** 
+   - `DialogManager` ngay lập tức ném chuỗi Markdown Toán học (step-by-step LaTeX) trực tiếp về Frontend cho người dùng xem ngay.
+   - Sau đó `DialogManager` gửi nghiệm JSON lên OpenAI API một lần nữa yêu cầu AI đóng vai gia sư Toán học tóm tắt, giải thích dễ hiểu tiến trình vừa giải.
+8. **UI Rendering:** Frontend nhận dữ liệu stream tuần tự và được render bằng KaTeX/MathJax ra giao diện HTML đẹp mắt.
+
+---
+
+## 3. Sơ đồ Kiến trúc Hệ thống (Architecture Flow)
+
+Dưới đây là biểu đồ mô tả luồng chu chuyển dữ liệu giữa các thành phần.
 
 ```mermaid
-graph TD
-    A[1. Người dùng nhập bài toán LP <br/> ← Giao diện Web / JSON API] --> B{2. Phân tích Yêu cầu <br/> (DialogManager + NLP Parsers)};
+flowchart TD
+    User([Người dùng]) --> UI[UI / Chat Interface]
+    UI --> API[Backend API]
+    API --> ReqProc[Request Processing]
+    ReqProc --> Solver[Solver]
+    Solver --> ResProc[Result Processing]
+    ResProc --> Response[Response]
+    Response --> User
+```
 
-    subgraph NLP & Chuẩn Bị Dữ Liệu
-        B --> B1[app/chatbot/nlp/lp_parser.py <br/> (Parse toàn bộ bài toán LP dạng chuỗi)];
-        B --> B2[app/chatbot/nlp/nlp_parser.py <br/> (Parse ý định, thực thể, từng phần bài toán)];
-        B --> B3[app/chatbot/nlp/nlp_gpt_parser.py <br/> (Parse bằng LLM nếu cần)];
-        B1 --> B_DM{DialogManager <br/> Tổng hợp về dạng trung gian <br/> (dùng coeffs_map)};
-        B2 --> B_DM;
-        B3 --> B_DM_GPT_Parse[DialogManager <br/> _parse_gpt_structure_to_internal_format <br/> (Chuỗi -> coeffs_map)];
-        B_DM_GPT_Parse --> B_DM;
-        B_DM --> C[DialogManager <br/> _convert_current_definition_to_solver_format <br/> (coeffs_map -> "Định dạng A")];
-    end
+---
 
-    C --> D{3. Chuẩn Hóa & Điều Phối Solver};
+## 4. Giải thích chi tiết từng thành phần
 
-    subgraph Chuẩn Hóa & Điều Phối
-        D -- "Định dạng A" --> D_PulpGeo[app/solver/dispatcher.py <br/> (Cho Pulp, Geometric)];
-        D_PulpGeo --> D_Pulp[pulp_cbc_solver.py];
-        D_PulpGeo --> D_Geo[geometric_solver.py];
+### 4.1. FastAPI Backend (`main.py` & `app/api/`)
+Đây là lớp vỏ ngoài cùng, khởi chạy server HTTP thông qua Uvicorn. Nó xử lý các tính năng Middleware hệ thống cốt yếu như: Quản lý CORS, phục vụ Static Assets (HTML/CSS/JS) gắn vào template, định tuyến API (Routing). Nó mở cổng Web Socket hoặc HTTP Streaming Request tiếp ứng từ Browser.
 
-        D -- "Định dạng A" --> D_Std_Wrap[Hàm Bao Bọc Solver Simplex <br/> (ví dụ: solve_with_simple_dictionary)];
-        D_Std_Wrap --> D_Std[app/solver/utils.py <br/> standardize_problem_for_simplex <br/> ("Định dạng A" -> "Định dạng A Chuẩn Hóa": <br/> mục tiêu "min", ràng buộc "<=")];
-        D_Std -- "Định dạng A Chuẩn Hóa" --> D_Dispatch_Simplex[app/solver/dispatcher.py <br/> (Cho các solver Simplex)];
-    end
+### 4.2. Dialog Manager (`app/chatbot/dialog_manager.py`)
+Là "Nhạc trưởng" của hệ thống phần mềm. 
+Nhiệm vụ chính yếu là duy trì `Session Timeout` và `Memory Context` của User. Nếu người dùng nhập câu không liên quan hoặc dữ liệu bị thiếu khuyết, nó quản lý việc hỏi lại. Nếu người dùng đột ngột ra lệnh "từ giờ hãy giải bằng biểu đồ geometric", Dialog Manager sẽ điều phối cờ cấu hình lưu trữ của Session. Đồng thời nó điều tiết tốc độ Server-Sent Event `stream chunks` về Client.
 
-    subgraph Solvers Simplex
-        D_Dispatch_Simplex --> E1[simple_dictionary_solver.py];
-        D_Dispatch_Simplex --> E2[simplex_bland_solver.py];
-        D_Dispatch_Simplex --> E3[auxiliary_problem_solver.py <br/> (Xử lý Pha 1 với x0_aux)];
-        %% D_Dispatch_Simplex --> E4[two_phase_simplex_solver.py <br/> (Nếu có, dùng biến nhân tạo Ai)];
-        %% D_Dispatch_Simplex --> E5[dual_simplex_solver.py];
-    end
+### 4.3. NLP Processing (`app/nlp/`)
+Phần đóng vai trò AI sử dụng `AsyncOpenAI` client (hoặc prompt template layer custom). Bao gồm 2 pipeline chính:
+- **Parser Intelligence:** Ép Agent (prompt engineering) đọc hiểu ngoại lệ text người dùng nhập và cấu trúc ra JSON Schema được định nghĩa khắt khe (VD: loại bỏ các ẩn biến vô giá trị). Đảm bảo LP Solver phía sau đọc được và không bị văng Exception syntax.
+- **Explainer Intelligence:** Yêu cầu LLM đóng vai một học giả Toán để nhận xét vì sao bài toán ra kết luận "Vô nghiệm" (Infeasible), hoặc "Vô hạn" (Unbounded) thông qua Log thuần túy do hệ thống Python trả ra.
 
-    E1 --> F[4. Trả Kết Quả Giải];
-    E2 --> F;
-    E3 --> F;
-    %% E4 --> F;
-    %% E5 --> F;
-    D_Pulp --> F;
-    D_Geo --> F;
-
-    F --> G[5. DialogManager <br/> Định dạng câu trả lời, <br/> quản lý hội thoại];
-    G --> H[6. Hiển Thị Kết Quả <br/> → Giao diện Web / Phản hồi API];
-
-style A fill:#f9f,stroke:#333,stroke-width:2px
-style B fill:#ccf,stroke:#333,stroke-width:2px
-style C fill:#lightgreen,stroke:#333,stroke-width:2px
-style D fill:#lightblue,stroke:#333,stroke-width:2px
-style F fill:#orange,stroke:#333,stroke-width:2px
-style G fill:#ccf,stroke:#333,stroke-width:2px
-style H fill:#f9f,stroke:#333,stroke-width:2px
-|-- main.py                     # Entry point tổng của ứng dụng
-|-- requirements.txt            # Các thư viện Python cần thiết
-|-- README.md                   # Mô tả dự án và hướng dẫn
-|-- .gitignore                  # (Nên có) Các tệp và thư mục Git sẽ bỏ qua
-|-- FLOW.md                     # Sơ đồ luồng hoạt động của ứng dụng (Tệp này)
-|
-|-- /app                        # App chính (Web API, Chatbot)
-|   |
-|   |-- /api                    # API REST cho Web hoặc Client
-|   |   |-- __init__.py
-|   |   |-- routes.py           # Định tuyến API
-|   |   `-- handlers.py         # Logic xử lý API
-|   |
-|   |-- /chatbot                # Logic Chatbot và NLP
-|   |   |-- __init__.py
-|   |   |-- /nlp                # Package xử lý ngôn ngữ tự nhiên
-|   |   |   |-- __init__.py
-|   |   |   |-- lp_parser.py    # Parse chuỗi LP đầy đủ -> coeffs_map
-|   |   |   |-- nlp_parser.py   # Parse intent, entity, từng phần bài toán -> coeffs_map
-|   |   |   |-- nlp_gpt_parser.py # Parse bằng LLM -> chuỗi biểu thức
-|   |   |   |-- rule_templates.py # Regex patterns cho nlp_parser
-|   |   |   |-- gpt_prompts.py  # Prompts cho nlp_gpt_parser
-|   |   |   `-- knowledge_base.json # Cơ sở tri thức
-|   |   |
-|   |   |-- dialog_manager.py   # Quản lý hội thoại, gọi NLP, chuẩn hóa sang "Định dạng A", gọi dispatcher
-|   |   |-- web_routes.py       # Định tuyến cho giao diện web chatbot
-|   |   `-- /templates
-|   |       `-- index.html      # Giao diện web
-|   |
-|   |-- /solver                 # Các bộ giải Quy hoạch Tuyến tính
-|   |   |-- __init__.py
-|   |   |-- pulp_cbc_solver.py  # Dùng thư viện PuLP + CBC (nhận "Định dạng A")
-|   |   |-- geometric_solver.py # Giải bằng phương pháp hình học cho 2 biến (nhận "Định dạng A")
-|   |   |-- utils.py            # Hàm tiện ích: standardize_problem_for_simplex()
-|   |   |
-|   |   |-- base_simplex_dictionary_solver.py # LỚP CHA cho solver Đơn hình từ điển (nhận "Định dạng A Chuẩn Hóa")
-|   |   |
-|   |   |-- simple_dictionary_solver.py # KẾ THỪA: Đơn hình từ điển, quy tắc Dantzig
-|   |   |-- simplex_bland_solver.py     # KẾ THỪA: Đơn hình từ điển, quy tắc Bland
-|   |   |-- auxiliary_problem_solver.py # KẾ THỪA: Đơn hình, dùng bài toán bổ trợ với x0_aux 
-|   |   |-- ## two_phase_simplex_solver.py ## (Cân nhắc nếu cần phương pháp Hai Pha chuẩn dùng biến nhân tạo Ai riêng biệt)
-|   |   |-- ## dual_simplex_solver.py ## (Nếu có)
-|   |   |
-|   |   `-- dispatcher.py       # Gọi solver theo tên
-|   |
-|   `-- __init__.py
-|
-|-- /core                       # Cấu hình và logging chung
-|   |-- __init__.py
-|   |-- config.py               # Config (API keys, env, model path)
-|   `-- logger.py               # Cấu hình logging
-|
-|-- /data                       # (Tùy chọn) Dữ liệu mẫu, huấn luyện
-|   |-- /examples
-|   |   `-- problem1.json
-|
-|-- /static                     # Frontend assets
-|   |-- /css
-|   |   `-- style.css
-|   |-- /js
-|   |   `-- main.js
-|
-|-- /tests                      # Unit test
-|   |-- __init__.py
-|   |-- test_solver.py          # Cần cập nhật để test với "Định dạng A" và "Định dạng A Chuẩn Hóa"
-|   |-- test_api.py
-|   `-- test_chatbot_nlp.py     # Test các parser trong app/chatbot/nlp/
+### 4.4. LP Solver (`app/solver/`)
+Là các module Python thuần túy kỹ thuật (Toán – Giải tích), hoàn toàn **không** chứa trí tuệ nhân tạo (AI-free zone):
+- `dispatcher.py`: Bộ Router của Thuật toán. Dựa vào Session Context Configuration để móc nối module `geometric.py`, thư viện `PuLP` hoặc engine `simplex`.
+- `algorithms/base_simplex_dictionary_solver.py`: Node Core thực thi giải thuật toán Đơn hình (Simplex) theo format Hệ Phương Trình (Dictionary/System of Equations). Ở đây có hệ thống Rule Pivot (như Dantzig, Bland) chống xoay vòng (cycle) và sinh mã LaTeX Matrix Tableaus.
+- `app/solver/utils.py`: Chứa method _standardize_problem_. Tự động biến đổi các biểu thức toán học tự nhiên lộn xộn (trộn lẫn `>=`, `<=`, `=`, `MAX`, `MIN` RHS âm/dương) về một Format Cơ Sở chung (Standard Form: Minimize và tịnh tiến Constant RHS dương) trước khi nạp ma trận vào Simplex Engine.

@@ -6,22 +6,13 @@ from fastapi.responses import HTMLResponse, JSONResponse # Thêm JSONResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 import json
-import redis
-from typing import Dict
+from typing import Dict, Optional
 from .dialog_manager import DialogManager 
-from core.config import settings
+from app.core.config import settings
+from app.core.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# Khởi tạo Redis Client
-try:
-    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-    redis_client.ping()
-    logger.info(f"Kết nối Redis thành công tại: {settings.REDIS_URL}")
-except Exception as e:
-    logger.error(f"Lỗi kết nối Redis: {e}. Hệ thống sẽ không thể lưu Phiên (Session).")
-    redis_client = None
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
@@ -34,16 +25,18 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # Nhưng NÊN GIỮ LẠI LÀM FALLBACK cho môi trường Development Local khi Redis tắt
 active_sessions_fallback: Dict[str, DialogManager] = {}
 
-def get_dialog_manager(request: Request) -> DialogManager:
+async def get_dialog_manager(
+    request: Request,
+    redis_client = Depends(get_redis_client)
+) -> DialogManager:
     # Lấy IP hoặc định danh client làm session id đơn giản
-    client_ip = request.client.host if request.client else "unknown_client"
-    session_id = f"web_session_{client_ip}"
+    client_ip = request.client.host if request.client else settings.UNKNOWN_CLIENT_ID
+    session_id = f"{settings.SESSION_ID_PREFIX}{client_ip}"
     
-    dm = DialogManager(user_id=session_id)
-    
-    # Query Redis để khôi phục State của User nếu có
+    # --- Ưu tiên 1: Redis (production) ---
     if redis_client:
-        raw_state = redis_client.get(session_id)
+        dm = DialogManager(user_id=session_id)
+        raw_state = await redis_client.get(session_id)
         if raw_state:
             try:
                 saved_data = json.loads(raw_state)
@@ -54,24 +47,28 @@ def get_dialog_manager(request: Request) -> DialogManager:
                 logger.error(f"Lỗi phân giải JSON từ Redis cho {session_id}")
         else:
             logger.info(f"Tạo phiên Chatbot mới trên Redis cho: {session_id}")
-    else:
-        # Fallback lưu trữ local memory nếu không kết nối được Redis
-        if session_id not in active_sessions_fallback:
-            logger.info(f"Tạo phiên Chatbot RAM Fallback cho: {session_id}")
-            active_sessions_fallback[session_id] = dm
-        dm = active_sessions_fallback[session_id]
-            
+        return dm
+
+    # --- Ưu tiên 2: RAM Fallback (local dev khi Redis tắt) ---
+    # Tái sử dụng instance cũ nếu đã tồn tại, tránh tạo mới mỗi request
+    if session_id in active_sessions_fallback:
+        return active_sessions_fallback[session_id]
+    
+    logger.info(f"Tạo phiên Chatbot RAM Fallback cho: {session_id}")
+    dm = DialogManager(user_id=session_id)
+    active_sessions_fallback[session_id] = dm
     return dm
 
+
 # --- Lưu Session Helper ---
-def save_session_to_redis(dm: DialogManager):
+async def save_session_to_redis(dm: DialogManager, redis_client):
     if redis_client:
         try:
             state_data = json.dumps({
                 "state": dm.state,
                 "logs": dm.logs
             })
-            redis_client.setex(dm.user_id, 86400, state_data) # Hết hạn sau 24h
+            await redis_client.setex(dm.user_id, settings.SESSION_TIMEOUT, state_data) # Hết hạn theo cấu hình
         except Exception as e:
             logger.error(f"Lỗi khi lưu Session vào Redis: {e}")
     else:
@@ -86,33 +83,45 @@ async def get_chat_interface(request: Request):
         logger.error(f"index.html not found in {TEMPLATES_DIR}")
         return HTMLResponse(content="<h1>Lỗi: Không tìm thấy tệp index.html</h1>", status_code=500)
         
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
-# !!! QUAN TRỌNG: Đổi send_message_to_bot thành async def !!!
-@router.post("/send_message", summary="Gửi tin nhắn đến chatbot và nhận phản hồi", response_class=JSONResponse)
+from fastapi.responses import StreamingResponse
+
+# !!! QUAN TRỌNG: Đổi send_message_to_bot thành async def để hỗ trợ Streaming !!!
+@router.post("/send_message", summary="Gửi tin nhắn đến chatbot (Streaming SSE)")
 async def send_message_to_bot(
     message: str = Form(...), 
-    dm: DialogManager = Depends(get_dialog_manager) # Sử dụng Depends để lấy instance
+    dm: DialogManager = Depends(get_dialog_manager),
+    redis_client = Depends(get_redis_client)
 ):
-    logger.info(f"Received message via POST: '{message}' for user '{dm.user_id}'") # Log user_id
+    logger.info(f"Received message via POST: '{message}' for user '{dm.user_id}'")
     if not message.strip():
-        return {"bot_response": {"text_response": "Vui lòng nhập gì đó!", "plot_image_base64": None, "suggestions": []}}
+        # Trả về kết quả JSON cứng qua SSE
+        async def err_gen():
+            yield f"data: {json.dumps({'type': 'complete', 'result': {'bot_response': {'text_response': 'Vui lòng nhập gì đó!', 'plot_image_base64': None, 'suggestions': []}}})}\n\n"
+        return StreamingResponse(err_gen(), media_type="text/event-stream")
         
-    # Gọi hàm handle_message bất đồng bộ
-    bot_response_data = await dm.handle_message(message) 
-    
-    # Save State vào Redis Network
-    save_session_to_redis(dm)
-    
-    # Trả về toàn bộ dictionary bot_response_data
-    # Frontend (JavaScript) sẽ xử lý object này
-    return {"bot_response": bot_response_data}
+    async def event_generator():
+        try:
+            async for event in dm.handle_message(message):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            logger.exception(f"Lỗi khi xử lý tin nhắn từ user: {e}")
+            yield f"data: {json.dumps({'type': 'complete', 'result': {'bot_response': {'text_response': 'Xin lỗi, đã xảy ra lỗi trong quá trình xử lý. Vui lòng thử lại hoặc đặt câu hỏi theo cách khác.', 'plot_image_base64': None, 'suggestions': ['Thử lại', 'Giải bài toán mẫu']}}})}\n\n"
+        finally:
+            # Save State vào Redis sau khi stream xong
+            await save_session_to_redis(dm, redis_client)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @router.post("/reset_chat_session", summary="Reset trạng thái hội thoại của chatbot cho user hiện tại")
-async def reset_session(dm: DialogManager = Depends(get_dialog_manager)):
+async def reset_session(
+    dm: DialogManager = Depends(get_dialog_manager),
+    redis_client = Depends(get_redis_client)
+):
     logger.info(f"Resetting chat session for user '{dm.user_id}'.")
     dm.reset_state()
-    save_session_to_redis(dm)
+    await save_session_to_redis(dm, redis_client)
     
     initial_message = dm.state.get("last_bot_message", "Đã làm mới. Bạn muốn bắt đầu lại chứ?")
     return {"bot_response": {"text_response": initial_message, "plot_image_base64": None, "suggestions": ["Nhập bài toán mới"]}}

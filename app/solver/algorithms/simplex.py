@@ -26,45 +26,10 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
         # dựa trên problem_data_standardized (luôn là "min" và các hệ số tương ứng)
 
     def _build_initial_dictionary(self) -> bool:
-        self._log("SimpleDictionarySolver: Building Initial Dictionary from standardized data...")
-        # self.decision_vars_names và self.objective_coeffs_list đã được thiết lập trong BaseSimplexDictionarySolver
-        # Hàm mục tiêu đã được chuẩn hóa thành "min"
-
-        # 1. Xây dựng biểu thức cho hàm mục tiêu z_obj (luôn là min)
-        # z_obj = 0 + sum(standardized_coeffs * decision_vars)
-        # Lưu ý: self.objective_coeffs_list chứa các hệ số của hàm MIN -Z nếu gốc là MAX Z
-        z_expr: Dict[str, float] = {'const': 0.0}
-        for i, var_name in enumerate(self.decision_vars_names):
-            if i < len(self.objective_coeffs_list): # self.objective_coeffs_list là hệ số của hàm min
-                z_expr[var_name] = self.objective_coeffs_list[i]
-        self.dictionary[self.current_objective_key] = z_expr # self.current_objective_key là 'z_obj'
-
-        # 2. Xây dựng phương trình cho các ràng buộc (tất cả đã là "<=")
-        #    và thêm biến bù (slack variables)
-        constraints_from_input = self.problem_data.get("constraints", []) # self.problem_data là standardized_problem_data
-        for i, constr in enumerate(constraints_from_input):
-            # Vì đã chuẩn hóa, constr.get("op") phải là "<="
-            if constr.get("op") not in ["<=", "≤"]:
-                self._log(f"CRITICAL ERROR (SimpleDictionarySolver): Constraint '{constr.get('name', i+1)}' received type '{constr.get('op')}' but expected '<=' after standardization. This indicates a bug in the standardization process or data flow.")
-                return False # Lỗi nghiêm trọng nếu dữ liệu chưa chuẩn hóa đúng
-
-            slack_var_name = f"s{i+1}"
-            self.slack_vars_names.append(slack_var_name)
-            if slack_var_name not in self.all_vars_ordered:
-                self.all_vars_ordered.append(slack_var_name)
-
-            self.basic_vars.append(slack_var_name) # Biến bù ban đầu là biến cơ sở
-
-            # Biểu thức: slack_var = rhs - sum(lhs_coeffs * decision_vars)
-            constr_expr: Dict[str, float] = {'const': constr.get("rhs", 0.0)}
-            lhs_coeffs_list = constr.get("lhs", []) # lhs này đã được điều chỉnh nếu ràng buộc gốc là ">="
-            for j, var_name in enumerate(self.decision_vars_names):
-                if j < len(lhs_coeffs_list):
-                    constr_expr[var_name] = -lhs_coeffs_list[j]
-            self.dictionary[slack_var_name] = constr_expr
-
-        self._log(f"SimpleDictionarySolver: All variables ordered after slack: {self.all_vars_ordered}")
-        self._log_dictionary(phase_info="Initial Build (Standardized)")
+        self._log("SimpleDictionarySolver: Building Initial Dictionary...")
+        if not self._build_standard_dictionary():
+            return False
+        self._log_dictionary(phase_info="Initial Build (Dantzig)")
         return True
 
     def _select_entering_variable(self) -> Optional[str]:
@@ -81,74 +46,24 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
         entering_var: Optional[str] = None
 
         sorted_non_basic_vars = sorted(
-            [nb_var for nb_var in self.non_basic_vars if nb_var in self.all_vars_ordered], # Chỉ xét các biến hợp lệ
+            [nb_var for nb_var in self.non_basic_vars if nb_var in self.all_vars_ordered],
             key=lambda v_name: self.all_vars_ordered.index(v_name)
         )
-        # self.current_objective_type sẽ luôn là "minimize" tại đây do đã chuẩn hóa
         for var_name in sorted_non_basic_vars:
             coeff = obj_expr.get(var_name, 0.0)
-            if coeff < most_negative_coeff: # Tìm hệ số âm "âm nhất"
+            if coeff < most_negative_coeff:
                 most_negative_coeff = coeff
                 entering_var = var_name
 
         if entering_var is None:
-            self._log(f"Optimality condition met for {self.current_objective_key} (minimize). No candidates for entering variable (Dantzig).")
+            self._log(f"Optimality condition met for {self.current_objective_key} (minimize). No candidates (Dantzig).")
             return None
 
-        self._log(f"Selected Entering (Dantzig for Min Objective): {entering_var} (coeff in {self.current_objective_key}: {most_negative_coeff:.4g}, index: {self.all_vars_ordered.index(entering_var)})")
+        self._log(f"Selected Entering (Dantzig): {entering_var} (coeff: {most_negative_coeff:.4g})")
         return entering_var
 
-    # _select_leaving_variable được kế thừa từ BaseSimplexDictionarySolver (sử dụng Bland's tie-breaker)
-
-    def _find_leaving_var_for_phase1_simple(self) -> Optional[str]:
-        """Pha 1 đơn giản: Tìm biến cơ sở có hằng số âm nhất để làm biến ra."""
-        most_negative_const = -self.epsilon
-        leaving_var_candidates: List[str] = []
-        for var_name in self.basic_vars:
-            if var_name == self.current_objective_key: continue
-            const_val = self.dictionary.get(var_name, {}).get('const', 0.0)
-            if const_val < most_negative_const:
-                most_negative_const = const_val; leaving_var_candidates = [var_name]
-            elif abs(const_val - most_negative_const) < self.epsilon and most_negative_const < -self.epsilon :
-                leaving_var_candidates.append(var_name)
-        if not leaving_var_candidates: return None
-
-        leaving_var_candidates.sort(key=lambda v: self.all_vars_ordered.index(v))
-        leaving_var = leaving_var_candidates[0]
-        self._log(f"Phase 1 (Simple) Leaving (Bland for tie-break): {leaving_var} (const: {most_negative_const:.4g})")
-        return leaving_var
-
-    def _find_entering_var_for_phase1_simple(self, leaving_var: str) -> Optional[str]:
-        """Pha 1 đơn giản: Tìm biến vào cho leaving_var đã chọn."""
-        leaving_var_expr = self.dictionary.get(leaving_var)
-        if leaving_var_expr is None: return None
-        candidate_entering_vars: List[str] = []
-        for var_name in self.non_basic_vars: # Chỉ xét các biến phi cơ sở đã được sắp xếp
-            if var_name not in self.all_vars_ordered: continue # Bỏ qua nếu biến không có trong thứ tự
-            coeff_in_row = leaving_var_expr.get(var_name, 0.0)
-            if coeff_in_row < -self.epsilon: candidate_entering_vars.append(var_name)
-        if not candidate_entering_vars:
-            self._log(f"Phase 1 (Simple) ERROR: No suitable entering variable for {leaving_var}. Problem may be infeasible."); return None
-
-        candidate_entering_vars.sort(key=lambda v: self.all_vars_ordered.index(v)) # Quy tắc Bland
-        entering_var = candidate_entering_vars[0]
-        self._log(f"Phase 1 (Simple) Entering (Bland): {entering_var} (coeff in {leaving_var} row: {leaving_var_expr.get(entering_var,0.0):.4g})")
-        return entering_var
-
-    def _run_phase1_simple(self, max_phase1_iterations: int) -> str:
-        self._log("--- Starting Simple Phase 1 (Feasibility) for SimpleDictionarySolver ---")
-        self.current_phase_info = "Phase 1 (Feasibility)"
-        phase1_iter = 0
-        while phase1_iter < max_phase1_iterations:
-            phase1_iter += 1; self.iteration_count +=1
-            self._log_dictionary(phase_info=self.current_phase_info)
-            leaving_var = self._find_leaving_var_for_phase1_simple()
-            if leaving_var is None: self._log("Simple Phase 1 completed. Dictionary is feasible."); return "Feasible"
-            entering_var = self._find_entering_var_for_phase1_simple(leaving_var)
-            if entering_var is None: self._log("Simple Phase 1 FAILED. Problem likely infeasible."); return "Infeasible"
-            if not self._perform_pivot(entering_var, leaving_var):
-                self._log("Simple Phase 1 FAILED: Pivot operation failed."); return "ErrorInPivot"
-        self._log(f"Simple Phase 1 FAILED: Max iterations ({max_phase1_iterations}) reached."); return "MaxIterationsReached"
+    # _select_leaving_variable kế thừa từ Base (Bland tie-break)
+    # _find_leaving_var_phase1, _find_entering_var_phase1, _run_phase1_simple kế thừa từ Base
 
 
     def solve(self, max_iterations: int = 50) -> Tuple[Optional[Dict[str, Any]], List[str]]:
@@ -161,10 +76,10 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
         if not self._build_initial_dictionary(): # Xây dựng từ điển từ dữ liệu đã chuẩn hóa
             return self._extract_solution("ErrorInSetup"), self.logs
 
-        initial_feasibility_check_var = self._find_leaving_var_for_phase1_simple()
+        initial_feasibility_check_var = self._find_leaving_var_phase1()
         if initial_feasibility_check_var is not None:
-            self._log(f"Initial dictionary not feasible (e.g., {initial_feasibility_check_var} has negative constant). Running Simple Phase 1.")
-            phase1_status = self._run_phase1_simple(max_iterations // 2 if max_iterations > 1 else 1)
+            self._log(f"Initial dictionary not feasible ({initial_feasibility_check_var} has negative constant). Running Phase 1.")
+            phase1_status = self._run_phase1_simple(max_iterations // 2 if max_iterations > 1 else 1, "Phase 1 (Dantzig)")
             if phase1_status != "Feasible":
                 return self._extract_solution(phase1_status), self.logs
         else:
@@ -185,12 +100,16 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
             entering_var = self._select_entering_variable() # Sử dụng Dantzig (đã ghi đè cho min)
             if not entering_var:
                 self._log("Optimization Phase: Optimal solution found.")
+                self._generate_tableau_md(phase_info="Final Optimal")
                 return self._extract_solution("Optimal"), self.logs
 
             leaving_var = self._select_leaving_variable(entering_var) # Sử dụng Bland tie-breaker từ lớp cha
             if not leaving_var:
                 self._log(f"Optimization Phase: Problem is UNBOUNDED for entering var {entering_var}.")
+                self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var)
                 return self._extract_solution("Unbounded"), self.logs
+
+            self._generate_tableau_md(phase_info=self.current_phase_info, entering_var=entering_var, leaving_var=leaving_var)
 
             if not self._perform_pivot(entering_var, leaving_var):
                  self._log("Optimization Phase FAILED: Pivot operation failed.")

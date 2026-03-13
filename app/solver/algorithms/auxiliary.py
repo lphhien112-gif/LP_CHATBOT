@@ -120,6 +120,8 @@ class AuxiliaryProblemSolver(BaseSimplexDictionarySolver):
             self._log(f"Initial dictionary for auxiliary problem is infeasible due to {leaving_var_for_first_pivot} (const={most_negative_const_val:.4g}).")
             self._log(f"Performing initial pivot: '{self.auxiliary_var_name}' enters, '{leaving_var_for_first_pivot}' leaves.")
 
+            self._generate_tableau_md(phase_info="Phase 1 - Initial", entering_var=self.auxiliary_var_name, leaving_var=leaving_var_for_first_pivot)
+
             if not self._perform_pivot(self.auxiliary_var_name, leaving_var_for_first_pivot):
                 self._log("ERROR: Initial pivot for Phase 1 failed.")
                 return False
@@ -147,24 +149,20 @@ class AuxiliaryProblemSolver(BaseSimplexDictionarySolver):
             # và self.current_objective_type (luôn là "minimize" cho cả hai pha sau chuẩn hóa)
             entering_var = self._select_entering_variable()
             if not entering_var:
+                self._generate_tableau_md(phase_info=f"Phase {self.current_phase} - Final Optimal")
                 return "Optimal" # Tối ưu cho pha hiện tại
 
             leaving_var = self._select_leaving_variable(entering_var)
             if not leaving_var:
+                self._generate_tableau_md(phase_info=f"Phase {self.current_phase}", entering_var=entering_var)
                 # Đối với Pha 1 (min x0_aux), nếu không bị chặn nghĩa là x0_aux có thể tiến tới -vô cùng.
-                # Điều này có nghĩa là x0_aux có thể bằng 0, tức là bài toán gốc khả thi.
                 if self.current_phase == 1:
                     self._log(f"Phase 1 (min {self.auxiliary_var_name}) is unbounded below. This implies the original problem is feasible.")
-                    # Ta cần đảm bảo x0_aux thực sự có thể bằng 0.
-                    # Nếu x0_aux vào cơ sở với giá trị 0, coi như tối ưu cho Pha 1 với giá trị 0.
-                    # Hoặc nếu f_aux không bị chặn nhưng x0_aux có thể được đẩy ra khỏi cơ sở ở giá trị 0.
-                    # Đây là trường hợp phức tạp, thường thì "Unbounded" cho min x0 có nghĩa là x0 có thể < 0.
-                    # Nếu mục tiêu là min x0 >= 0, thì "Unbounded" sẽ không xảy ra nếu có nghiệm.
-                    # Với cách thiết lập f_aux = x0_aux, nếu f_aux unbounded -> x0_aux unbounded.
-                    # Nếu x0_aux có thể < 0 tùy ý, thì nó cũng có thể = 0.
                     return "Optimal" # Coi như tối ưu với x0=0 nếu Pha 1 không bị chặn
                 else: # Pha 2
                     return "Unbounded" # Bài toán gốc không bị chặn
+
+            self._generate_tableau_md(phase_info=f"Phase {self.current_phase}", entering_var=entering_var, leaving_var=leaving_var)
 
             if not self._perform_pivot(entering_var, leaving_var):
                 return "ErrorInPivot"
@@ -316,6 +314,7 @@ class AuxiliaryProblemSolver(BaseSimplexDictionarySolver):
         self.dictionary[self.current_objective_key] = z_original_expr_substituted
         self._log(f"Restored original objective '{self.current_objective_key}' for Phase 2.")
         self._log_dictionary(phase_info="Phase 2 - Initial")
+        self._generate_tableau_md(phase_info="Phase 2 - Initial")
 
         # --- PHA 2: Tối ưu hóa hàm mục tiêu gốc ---
         self.current_phase = 2

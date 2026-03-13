@@ -1,0 +1,17 @@
+# ===== Development & Testing Dependencies =====
+# Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+
+# Testing
+pytest==8.3.5
+pytest-asyncio==0.26.0
+pytest-cov==6.0.0
+pytest-playwright==0.7.0
+anyio==4.9.0
+
+# Code Quality
+ruff==0.11.2
+bandit==1.8.3
+
+# HTTP Testing
+httpx==0.28.1

@@ -1,7 +1,7 @@
 # /app/solver/dispatcher.py
 import logging
 from typing import Dict, Any, Tuple, Optional, Callable, List
-# import functools # Không cần thiết nếu dùng lambda hoặc truyền trực tiếp
+from app.core.config import settings
 
 # Import các hàm bao bọc solver đã được cập nhật/đổi tên
 from .algorithms.pulp_cbc import solve_with_pulp_cbc
@@ -9,6 +9,9 @@ from .algorithms.geometric import solve_with_geometric_method
 from .algorithms.simplex import solve_with_simple_dictionary
 from .algorithms.simplex_bland import solve_with_simplex_bland
 from .algorithms.auxiliary import solve_with_auxiliary_problem_simplex
+from .algorithms.dual_simplex import solve_with_dual_simplex
+from .algorithms.dual_primal_two_phase import solve_with_dual_primal_two_phase
+from .algorithms.duality import build_dual_problem, complementary_slackness
 
 logger = logging.getLogger(__name__)
 
@@ -19,20 +22,22 @@ SolverFunction = Callable[[Dict[str, Any], int], Tuple[Optional[Dict[str, Any]],
 # Các hàm này giờ đây nhận "Định dạng A" làm problem_data.
 # Các hàm solver Simplex sẽ tự gọi standardize_problem_for_simplex bên trong.
 AVAILABLE_SOLVERS: Dict[str, SolverFunction] = {
-    "pulp_cbc": lambda pd, mi=0: solve_with_pulp_cbc(pd), # pulp_cbc không dùng max_iterations từ dispatcher
-    "geometric": lambda pd, mi=0: solve_with_geometric_method(pd), # geometric không dùng max_iterations từ dispatcher
-    "simple_dictionary": solve_with_simple_dictionary, # Hàm này có max_iterations=50 làm mặc định
-    "simplex_bland": solve_with_simplex_bland,       # Hàm này có max_iterations=50 làm mặc định
-    "auxiliary": solve_with_auxiliary_problem_simplex, # Hàm này có max_iterations_total=50 làm mặc định
-    # "two_phase": solve_with_two_phase_simplex, # Nếu bạn có solver Two-Phase chuẩn riêng
-    # "dual_simplex": solve_with_dual_simplex,   # Nếu bạn có solver Đối ngẫu
+    "pulp_cbc": lambda pd, mi=0: solve_with_pulp_cbc(pd),
+    "geometric": lambda pd, mi=0: solve_with_geometric_method(pd),
+    "simple_dictionary": solve_with_simple_dictionary,
+    "simplex_bland": solve_with_simplex_bland,
+    "auxiliary": solve_with_auxiliary_problem_simplex,
+    "dual_simplex": solve_with_dual_simplex,
+    "dual_primal_two_phase": solve_with_dual_primal_two_phase,
 }
 
 def dispatch_solver(
     problem_data: Dict[str, Any], # Sẽ nhận "Định dạng A"
-    solver_name: str = "pulp_cbc",
-    max_iterations: int = 50 # Tham số này sẽ được truyền cho các solver Simplex
+    solver_name: str = None,
+    max_iterations: int = None 
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    solver_name = solver_name or settings.DEFAULT_SOLVER
+    max_iterations = max_iterations or settings.MAX_ITERATIONS
     """
     Gọi solver được chỉ định để giải bài toán LP.
 
@@ -53,7 +58,7 @@ def dispatch_solver(
         try:
             # Truyền max_iterations cho các solver Simplex.
             # pulp_cbc và geometric được gọi qua lambda nên không nhận max_iterations từ đây.
-            if solver_name in ["simple_dictionary", "simplex_bland", "auxiliary"]:
+            if solver_name in ["simple_dictionary", "simplex_bland", "auxiliary", "dual_simplex", "dual_primal_two_phase"]:
                 solution, solver_logs = solver_func_base(problem_data, max_iterations)
             else: # Cho pulp_cbc, geometric (lambda đã xử lý việc không cần max_iterations)
                 solution, solver_logs = solver_func_base(problem_data, 0) # Số 0 chỉ là placeholder

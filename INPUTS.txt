@@ -1,0 +1,105 @@
+Một nhà máy mộc xuất khẩu bàn (B) và ghế (G). 
+Lợi nhuận: B = 45 USD, G = 30 USD
+Thời gian công nhân: B = 2 giờ, G = 1 giờ, tối đa 40 giờ/tuần
+Thời gian kiểm duyệt: B = 1 giờ, G = 2 giờ, tối đa 50 giờ/tuần
+Hãy maximize lợi nhuận.
+
+---
+
+Tôi muốn tối đa hóa lợi nhuận: 3x + 2y
+Với điều kiện:
+- x + y <= 10
+- 2x + y <= 15
+- x, y >= 0
+
+---
+
+Minimize chi phí: 4x + 3y
+Subject to:
+- 2x + y >= 8
+- x + 2y >= 7
+- x, y >= 0
+
+---
+
+Một nhà đầu tư có 100,000 USD để chia vào:
+- Cổ phiếu (S): Lợi suất 12%, tối đa 50,000
+- Trái phiếu (B): Lợi suất 8%, tối đa 60,000
+- Tiền mặt (C): Lợi suất 3%, không hạn
+Maximize lợi suất tổng với 100,000 USD được đầu tư hết.
+
+---
+
+Một nhà máy tạo hỗn hợp từ 3 nguyên liệu:
+Minimize chi phí: 2*x1 + 3*x2 + 1.5*x3
+Subject to:
+- x1 + x2 + x3 >= 1000
+- x1 >= 200
+- x2 <= 300
+- x1, x2, x3 >= 0
+
+---
+
+Maximize: x + 2y
+Subject to:
+- x - y <= 10
+- x, y >= 0
+
+---
+
+Maximize: x + y
+Subject to:
+- x + y <= 5
+- x + y >= 10
+- x, y >= 0
+
+---
+
+Maximize: 2x + 4y
+Subject to:
+- x + 2y <= 100
+- 2x + y <= 100
+- x, y >= 0
+
+---
+
+Một nhà máy sản xuất 4 loại sản phẩm (P1, P2, P3, P4).
+Lợi nhuận: P1 = 50, P2 = 40, P3 = 35, P4 = 30
+Thời gian máy: P1 = 3h, P2 = 2h, P3 = 2h, P4 = 1h, tối đa 200h
+Thời gian lao động: P1 = 2h, P2 = 2h, P3 = 1h, P4 = 1h, tối đa 150h
+Dự báo thị trường: P1 >= 10, P2 <= 60
+Maximize lợi nhuận.
+
+---
+
+Một người cần chế độ dinh dưỡng hàng ngày:
+- Calo: >= 2000
+- Protein: >= 50g
+- Fat: <= 70g
+- Carbs: >= 200g
+
+Lựa chọn: Gà ($5, 100cal, 20g protein, 5g fat, 0g carbs)
+         Gạo ($2, 130cal, 2.5g protein, 0g fat, 28g carbs)
+         Dầu ($8, 900cal, 0g protein, 100g fat, 0g carbs)
+         Rau ($3, 50cal, 2g protein, 0.5g fat, 8g carbs)
+
+Minimize chi phí với tất cả constraint dinh dưỡng.
+
+---
+
+Có 3 kho (S1, S2, S3) với khối lượng:
+- S1 = 100 tấn
+- S2 = 150 tấn
+- S3 = 120 tấn
+
+Có 3 cửa hàng (D1, D2, D3) với yêu cầu:
+- D1 = 80 tấn
+- D2 = 110 tấn
+- D3 = 100 tấn
+
+Chi phí vận chuyển/tấn:
+- S1→D1 = 2, S1→D2 = 3, S1→D3 = 1
+- S2→D1 = 4, S2→D2 = 2, S2→D3 = 3
+- S3→D1 = 1, S3→D2 = 5, S3→D3 = 2
+
+Minimize chi phí vận chuyển.

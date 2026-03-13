@@ -34,9 +34,22 @@ class Settings(BaseSettings):
     
     # Security
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:8000"]
+    ALLOWED_METHODS: List[str] = ["GET", "POST", "OPTIONS"]
+    ALLOWED_HEADERS: List[str] = ["*"]
     
-    # Redis
+    # Redis & Sessions
     REDIS_URL: str = "redis://localhost:6379/0"
+    SESSION_TIMEOUT: int = 86400  # 24h
+    SESSION_ID_PREFIX: str = "web_session_"
+    UNKNOWN_CLIENT_ID: str = "unknown_client"
+
+    # Default Solver Config
+    DEFAULT_SOLVER: str = "pulp_cbc"
+    MAX_ITERATIONS: int = 50
+
+    # Paths & Routing
+    STATIC_DIR: str = "static"
+    DEFAULT_REDIRECT_URL: str = "/chat"
     
     model_config = SettingsConfigDict(
         env_file=".env",

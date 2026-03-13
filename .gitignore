@@ -4,9 +4,12 @@ __pycache__/
 .env
 venv/
 # Test outputs
-test_outputs/
+# test_outputs/
 test_results.md
 test_backend_output.txt
+INPUTS.txt
+walkthrough.md
+memory/
 
 # IDE files
 .vscode/

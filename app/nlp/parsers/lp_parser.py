@@ -93,21 +93,55 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
         objective_type_str = objective_match.group(1).lower()
         
         constraints_start_match = re.search(rule_templates.LP_PATTERNS['subject_to_keywords'], text_cleaned, re.IGNORECASE)
+        # Also treat "and" as a constraint separator (English "x+y>=4 and x+3y>=6")
+        and_match = re.search(r'\band\b', text_cleaned, re.IGNORECASE)
         
         if constraints_start_match:
             objective_part = text_cleaned[objective_match.end():constraints_start_match.start()].strip()
             constraints_part = text_cleaned[constraints_start_match.end():].strip()
+        elif and_match:
+            # "and" splits objective from constraints: "2x + 3y and x + y >= 4"
+            # But "and" might also be mid-constraints list. Find the first "and" after objective.
+            obj_raw = text_cleaned[objective_match.end():].strip()
+            and_in_obj = re.search(r'\band\b', obj_raw, re.IGNORECASE)
+            if and_in_obj:
+                objective_part = obj_raw[:and_in_obj.start()].strip()
+                constraints_part = obj_raw[and_in_obj.end():].strip()
+                # Replace remaining "and" with ";" for multiple constraints
+                constraints_part = re.sub(r'\band\b', ';', constraints_part, flags=re.IGNORECASE)
+            else:
+                objective_part = obj_raw
+                constraints_part = ""
         else:
-            objective_part = text_cleaned[objective_match.end():].strip()
-            constraints_part = ""
+            # FALLBACK: look for comma-separated constraints inline with objective
+            # Pattern: objective expression, then comma, then expression with operator
+            # "max 2x+4y, x+2y <= 100, 2x+y <= 100" — constraints start at first comma before <=/>=/=
+            obj_raw = text_cleaned[objective_match.end():].strip()
+            # Try to find where constraints begin: first comma followed by something with an operator
+            comma_constraint = re.search(r',\s*(.+?(?:<=|>=|==|<|>|≤|≥))', obj_raw)
+            if comma_constraint:
+                cut = obj_raw.index(',', comma_constraint.start())
+                objective_part = obj_raw[:cut].strip()
+                constraints_part = obj_raw[cut+1:].strip()
+            else:
+                objective_part = obj_raw
+                constraints_part = ""
 
         # Cắt bớt phần sau dấu ; hoặc dấu . (chỉ cắt nếu . có khoảng trắng theo sau hoặc ở cuối chuỗi)
-        objective_part = re.split(r';|\.\s|\.$', objective_part)[0]
+        objective_part = re.split(r';|\\.\\s|\\.$', objective_part)[0]
 
         # Lọc chỉ giữ lại các thành phần toán học hợp lệ (biến, số, phép tính)
         # Giữ lại cụm: Z =, f(x) =, số, biến chữ latin, phép -, +
+        # Strip the "Z = ", "f(x) =" prefix from objective expression
         objective_expr = re.sub(r"^[a-zA-Z0-9\s_\(\)]+\s*=\s*", "", objective_part, flags=re.IGNORECASE).strip()
-        # Loại bỏ các từ tiếng Việt hoặc ký tự thừa nằm sau biểu thức toán học
+        
+        # CRITICAL FIX: Remove trailing Vietnamese/English words that are NOT math terms
+        # e.g. "3x1 + 5x2 với ràng buộc" → strip "với ràng buộc"
+        # Strategy: cut at first Vietnamese word (≥2 letters not preceded by a digit or operator)
+        # Keep only valid math expression characters: digits, letters of variables, +, -, ., *
+        objective_expr = re.sub(r'\s+(với|subject|điều kiện|where|when|st|s\.t).*$', '', objective_expr, flags=re.IGNORECASE).strip()
+        
+        # Remove non-math trailing garbage: everything after the last valid math char sequence
         objective_expr = re.sub(r'[^a-zA-Z0-9\s\+\-\*\.].*$', '', objective_expr).strip()
         
         obj_coeffs_map, obj_vars = parse_expression_to_coeffs_map(objective_expr)
@@ -115,13 +149,25 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
             logs.append(f"Error: Could not parse objective expression: '{objective_expr}'")
             return None, logs
 
+        # CRITICAL FIX: Detect objective type correctly for both English and Vietnamese  
+        maximize_keywords = {"max", "maximize", "tối đa hóa", "tối đa"}
+        minimize_keywords = {"min", "minimize", "tối thiểu hóa", "tối thiểu"}
+        obj_type_clean = objective_type_str.strip().lower()
+        if any(kw in obj_type_clean for kw in maximize_keywords) or obj_type_clean in maximize_keywords:
+            obj_type_final = "maximize"
+        elif any(kw in obj_type_clean for kw in minimize_keywords) or obj_type_clean in minimize_keywords:
+            obj_type_final = "minimize"
+        else:
+            # fallback: check for 'max' substring
+            obj_type_final = "maximize" if "max" in obj_type_clean else "minimize"
+        
         problem_data = {
-            "objective_type": "maximize" if "max" in objective_type_str else "minimize",
+            "objective_type": obj_type_final,
             "objective_coeffs_map": obj_coeffs_map,
             "objective_variables_ordered": obj_vars,
             "constraints": []
         }
-        logs.append(f"Parsed objective function: {problem_data['objective_type']}")
+        logs.append(f"Parsed objective function: {problem_data['objective_type']} (from '{objective_type_str}')")
 
         # --- Constraint Parsing (Improved Logic) ---
         if constraints_part:
@@ -129,7 +175,7 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
             constraints_part = _expand_non_negativity_constraints(constraints_part)
             
             # 2. Split into individual constraint lines using punctuation or flow words
-            constraint_lines = [line.strip() for line in re.split(r'[;.,]|\bvà\b|\bvs\b|\bcòn\b', constraints_part, flags=re.IGNORECASE) if line.strip()]
+            constraint_lines = [line.strip() for line in re.split(r'[;.,]|\bvà\b|\bvs\b|\bcòn\b|\band\b', constraints_part, flags=re.IGNORECASE) if line.strip()]
             
             parsed_constraints = []
             for i, line in enumerate(constraint_lines):

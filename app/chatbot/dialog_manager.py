@@ -9,7 +9,7 @@ from pathlib import Path
 from app.nlp import (
     parse_lp_problem_from_string,
     NlpParser,
-    NlpGptParser
+    OpenAiClient
 )
 from app.solver.dispatcher import dispatch_solver
 
@@ -21,15 +21,17 @@ class DialogManager:
         self.logs: List[str] = []
         self.rule_based_nlp = NlpParser()
         self.lp_formula_parser = parse_lp_problem_from_string
-        self.gpt_nlp = NlpGptParser()
+        self.openai_client = OpenAiClient()
         self.sample_problems = self._load_sample_problems()
         self.reset_state()
 
     def _load_sample_problems(self) -> List[Dict[str, Any]]:
         """Tải các bài toán mẫu từ tệp JSON."""
         try:
-            # Đường dẫn đến tệp JSON trong cùng thư mục nlp
-            json_path = Path(__file__).resolve().parent / "nlp" / "sample_problems.json"
+            # Đường dẫn đến tệp JSON: app/nlp/data/sample_problems.json
+            base_path = Path(__file__).resolve().parent.parent # app/ chatbot/ -> app/
+            json_path = base_path / "nlp" / "data" / "sample_problems.json"
+            
             with open(json_path, 'r', encoding='utf-8') as f:
                 problems = json.load(f)
                 self._log(f"Đã tải thành công {len(problems)} bài toán mẫu.")
@@ -115,31 +117,39 @@ class DialogManager:
     async def _handle_intent_request_step_explanation(self, entities: Dict):
         """Xử lý yêu cầu giải thích một bước giải."""
         if not self.state.get("last_solution_context"):
-            return self._finalize_response({"text_response": "Mình chưa có lời giải nào trong bộ nhớ để giải thích. Bạn hãy giải một bài toán trước nhé."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Mình chưa có lời giải nào trong bộ nhớ để giải thích. Bạn hãy giải một bài toán trước nhé."})}
+            return
 
         try:
             step_number = int(entities.get("step_number", "0"))
             if step_number <= 0: raise ValueError
         except (ValueError, TypeError):
-            return self._finalize_response({"text_response": "Mình không hiểu bạn muốn giải thích bước nào. Vui lòng nói rõ, ví dụ: 'giải thích bước 2'."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Mình không hiểu bạn muốn giải thích bước nào. Vui lòng nói rõ, ví dụ: 'giải thích bước 2'."})}
+            return
 
         log_chunk = self._extract_log_chunk_for_step(step_number)
         
         if not log_chunk:
-            return self._finalize_response({"text_response": f"Mình không tìm thấy thông tin chi tiết cho bước {step_number} trong lần giải vừa rồi. Có thể bài toán được giải bằng phương pháp không có bước lặp, hoặc đã kết thúc sớm hơn."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": f"Mình không tìm thấy thông tin chi tiết cho bước {step_number} trong lần giải vừa rồi. Có thể bài toán được giải bằng phương pháp không có bước lặp, hoặc đã kết thúc sớm hơn."})}
+            return
             
-        explanation = await self.gpt_nlp.explain_simplex_step(log_chunk)
-        
-        return self._finalize_response({
-            "text_response": explanation or "Xin lỗi, mình chưa thể giải thích bước này.",
+        # Streaming explanation
+        explanation_full = ""
+        async for chunk in self.openai_client.explain_simplex_step_stream(log_chunk):
+            explanation_full += chunk
+            yield {"type": "chunk", "content": chunk}
+            
+        yield {"type": "complete", "result": self._finalize_response({
+            "text_response": explanation_full or "Xin lỗi, mình chưa thể giải thích bước này.",
             "allow_html": True,
             "suggestions": [f"Giải thích bước {step_number + 1}", "Trở về bài toán"]
-        })
+        })}
 
     async def _handle_intent_request_specific_solver(self, entities: Dict):
         """Xử lý yêu cầu giải lại bài toán với một solver cụ thể."""
         if not self._is_problem_defined():
-            return self._finalize_response({"text_response": "Mình chưa có bài toán nào để giải lại. Bạn vui lòng cung cấp một bài toán trước nhé."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Mình chưa có bài toán nào để giải lại. Bạn vui lòng cung cấp một bài toán trước nhé."})}
+            return
 
         solver_name_entity = entities.get("solver_name", "")
         solver_to_use = self._map_solver_name(solver_name_entity)
@@ -155,16 +165,17 @@ class DialogManager:
         
         confirmation_text = f"Được chứ! Bạn muốn mình giải lại bài toán hiện tại (<b>{obj_expr}</b>) bằng phương pháp <b>{solver_to_use}</b> phải không?"
         
-        return self._finalize_response({
+        yield {"type": "complete", "result": self._finalize_response({
             "text_response": confirmation_text,
             "allow_html": True,
             "suggestions": ["Đúng vậy", "Thôi, để sau"]
-        })
+        })}
 
-    def _handle_list_sample_problems(self):
+    async def _handle_list_sample_problems(self):
         """Liệt kê các bài toán mẫu cho người dùng chọn."""
         if not self.sample_problems:
-            return self._finalize_response({"text_response": "Xin lỗi, mình chưa có sẵn bài toán mẫu nào cả."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Xin lỗi, mình chưa có sẵn bài toán mẫu nào cả."})}
+            return
         
         response_lines = ["Mình có một vài bài toán mẫu đây, bạn muốn thử bài nào?"]
         suggestions = []
@@ -173,17 +184,24 @@ class DialogManager:
             suggestions.append(f"Chọn bài toán {i+1}")
             
         self.state["expectation"] = "awaiting_sample_choice"
-        return self._finalize_response({
+        yield {"type": "complete", "result": self._finalize_response({
             "text_response": "<br>".join(response_lines),
             "allow_html": True,
             "suggestions": suggestions
-        })
+        })}
 
     async def _handle_sample_choice(self, user_message: str):
         """Xử lý khi người dùng chọn một bài toán mẫu."""
+        choice_match = re.search(r'\d+', user_message)
+        
+        if not choice_match:
+            # User sent non-numeric input → exit awaiting_sample_choice, reroute to normal flow
+            self.state['expectation'] = None
+            # Yield a special marker so handle_message knows to re-process this message normally
+            yield {"type": "_reroute"}
+            return
+        
         try:
-            choice_match = re.search(r'\d+', user_message)
-            if not choice_match: raise ValueError
             choice_index = int(choice_match.group(0)) - 1
             
             if 0 <= choice_index < len(self.sample_problems):
@@ -193,18 +211,27 @@ class DialogManager:
                 parsed_lp, _ = self.lp_formula_parser(chosen_problem['full_problem_string'])
                 self.state['current_problem_definition'] = parsed_lp
                 self.state['expectation'] = None # Xóa trạng thái chờ
-                return await self._solve_current_problem("pulp_cbc") # Giải bằng solver mặc định
+                # Dùng solver ưu tiên từ JSON để hiện step-by-step tableaus
+                preferred_solver = chosen_problem.get('preferred_solver', 'simple_dictionary')
+                async for event in self._solve_current_problem(preferred_solver):
+                    yield event
+                return
             else:
-                raise IndexError
+                suggestions = [f"Chọn bài toán {i+1}" for i in range(len(self.sample_problems))]
+                yield {"type": "complete", "result": self._finalize_response({
+                    "text_response": f"Vui lòng chọn số từ 1 đến {len(self.sample_problems)}.",
+                    "suggestions": suggestions
+                })}
         except (ValueError, IndexError):
-            return self._finalize_response({"text_response": "Lựa chọn không hợp lệ. Bạn vui lòng chọn lại từ danh sách nhé."})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Lựa chọn không hợp lệ. Bạn vui lòng chọn lại từ danh sách nhé."})}
 
     async def _solve_current_problem(self, solver_name: str, preamble: Optional[str] = None):
         """Hàm tổng hợp để giải bài toán hiện tại trong state."""
         internal_def = self.state["current_problem_definition"]
         solver_format = self._convert_internal_to_solver_format(internal_def)
         if not solver_format:
-            return self._finalize_response({"text_response": "Rất tiếc, có lỗi khi chuẩn bị dữ liệu để giải.", "allow_html": False})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Rất tiếc, có lỗi khi chuẩn bị dữ liệu để giải.", "allow_html": False})}
+            return
 
         self._log(f"Bắt đầu giải bằng solver '{solver_name}'...")
         # [PERFORMANCE FIX] Chạy tác vụ toán học nặng trên Threadpool để không chặn Event Loop (FastAPI)
@@ -219,26 +246,43 @@ class DialogManager:
         context = {"problem_definition": internal_def, "solution": solution, "logs": logs}
         self.state["last_solution_context"] = context
 
-        # Định dạng câu trả lời
         response_parts = []
         if preamble: response_parts.append(f"<p>{preamble}</p>")
         response_parts.append(self._format_problem_summary(internal_def))
-        # Gọi LLM (Gemini) để dịch kết quả Toán học sang Văn xuôi Natural Language
-        llm_formatted_text = await self.gpt_nlp.format_solver_solution(internal_def, solution)
+        # Phát tín hiệu render HTML summary lên UI liền ngay lập tức (như dạng chunk)
+        summary_html = "".join(response_parts) + "<br><div class='markdown-body'>"
+        yield {"type": "chunk", "content": summary_html}
+        
+        # Inject mảng step_by_step_md (bảng Simplex Tableaus) vào UI
+        step_by_step_md = solution.get("step_by_step_md", []) if solution else []
+        tableaus_html = ""
+        if step_by_step_md:
+            tableaus_md = "\n\n".join(step_by_step_md)
+            self._log(f"Đã có {len(step_by_step_md)} bước Tableaus để hiển thị.")
+            # Yield trực tiếp block raw markdown (frontend có marked.js sẽ render sau)
+            yield {"type": "chunk_escaped", "content": tableaus_md + "\n\n---\n**Tóm tắt chung:**\n\n"}
+            tableaus_html = tableaus_md + "\n\n---\n**Tóm tắt chung:**\n\n"
+        
+        # Streaming LLM Explanation
+        llm_formatted_text = ""
+        async for chunk in self.openai_client.format_solver_solution_stream(internal_def, solution):
+            llm_formatted_text += chunk
+            yield {"type": "chunk_escaped", "content": chunk}
+            
+        yield {"type": "chunk", "content": "</div>"}
         
         # Fallback: Trả về kết quả thô kèm html tĩnh nếu LLM lỗi mạng
         if not llm_formatted_text:
              self._log("Fallback do gọi API LLM bị lỗi")
-             response_parts.append(self._format_solution_response(solution, solver_format, solver_name))
-        else:
-             # Gắn kết quả từ LLM vào Frontend
-             response_parts.append(f"<div class='markdown-body'>{llm_formatted_text}</div>")
-             
-             # Chèn biểu đồ ảnh nếu có
-             if solution and solution.get("plot_image_base64"):
-                  img_src = solution["plot_image_base64"]
-                  image_html = f"<br><br><div style='text-align: center;'><img src='{img_src}' alt='Biểu đồ giải bằng hình học' style='max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);' /></div>"
-                  response_parts.append(image_html)
+             fallback_html = self._format_solution_response(solution, solver_format, solver_name)
+             yield {"type": "chunk", "content": fallback_html}
+             llm_formatted_text = fallback_html
+        
+        # Chèn biểu đồ ảnh nếu có
+        image_html = ""
+        if solution and solution.get("plot_image_base64"):
+             img_src = solution["plot_image_base64"]
+             image_html = f"<br><br><div style='text-align: center;'><img src='{img_src}' alt='Biểu đồ giải bằng hình học' style='max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);' /></div>"
         
         # Tạo gợi ý
         suggestions = ["Bắt đầu bài toán mới"]
@@ -250,12 +294,15 @@ class DialogManager:
             elif len(solver_format.get("variables_names_for_title_only", [])) > 2 and solver_name != "simple_dictionary":
                  suggestions.insert(0, "Giải bằng đơn hình")
 
-        return self._finalize_response({
-            "text_response": "".join(response_parts),
+        # LLM stream đã được parse HTML khi allow_html = True (thông qua marked.js ở Frontend)
+        final_text_content = summary_html + tableaus_html + llm_formatted_text + "</div>" + image_html
+
+        yield {"type": "complete", "result": self._finalize_response({
+            "text_response": final_text_content,
             "problem_context": context,
             "allow_html": True,
             "suggestions": suggestions
-        })
+        })}
 
     async def handle_message(self, user_message: str) -> Dict[str, Any]:
         """Hàm chính điều phối luồng hội thoại."""
@@ -267,26 +314,40 @@ class DialogManager:
             self.state["expectation"] = None # Reset trạng thái chờ
             if "không" in user_message.lower() or "thôi" in user_message.lower():
                 self.state["pending_action"] = None
-                return self._finalize_response({"text_response": "Được rồi, nếu bạn cần gì khác cứ nói nhé!", "suggestions": ["Bắt đầu bài toán mới"]})
+                yield {"type": "complete", "result": self._finalize_response({"text_response": "Được rồi, nếu bạn cần gì khác cứ nói nhé!", "suggestions": ["Bắt đầu bài toán mới"]})}
+                return
             else: # Mặc định là đồng ý
                 pending = self.state.pop("pending_action")
                 if pending and pending['action'] == 'solve':
-                    return await self._solve_current_problem(pending['solver'])
+                    async for event in self._solve_current_problem(pending['solver']):
+                        yield event
+                    return
 
         if self.state["expectation"] == "awaiting_sample_choice":
-            return await self._handle_sample_choice(user_message)
+            rerouted = False
+            async for event in self._handle_sample_choice(user_message):
+                if event.get("type") == "_reroute":
+                    rerouted = True
+                    break  # Don't return — fall through to normal flow below
+                yield event
+            if not rerouted:
+                return
 
         # Ưu tiên 2: Các lệnh đặc biệt
         if user_message.lower() in ["bắt đầu lại", "reset", "làm mới", "bài toán mới"]:
              self.reset_state()
-             return self._finalize_response({"text_response": "Đã làm mới! Mình có thể giúp gì cho bạn tiếp theo?", "suggestions": ['Giải bài toán mẫu', 'Kể một câu chuyện bài toán', 'Biến bù là gì?']})
+             yield {"type": "complete", "result": self._finalize_response({"text_response": "Đã làm mới! Mình có thể giúp gì cho bạn tiếp theo?", "suggestions": ['Giải bài toán mẫu', 'Kể một câu chuyện bài toán', 'Biến bù là gì?']})}
+             return
         
         if "bài toán mẫu" in user_message.lower():
-             return self._handle_list_sample_problems()
+             async for event in self._handle_list_sample_problems():
+                 yield event
+             return
         
         if "câu chuyện" in user_message.lower():
              self.state['expectation'] = 'awaiting_story'
-             return self._finalize_response({"text_response": "Tuyệt vời! Hãy kể cho mình nghe vấn đề của bạn bằng ngôn ngữ tự nhiên nhé. Mình sẽ cố gắng chuyển nó thành một bài toán LP."})
+             yield {"type": "complete", "result": self._finalize_response({"text_response": "Tuyệt vời! Hãy kể cho mình nghe vấn đề của bạn bằng ngôn ngữ tự nhiên nhé. Mình sẽ cố gắng chuyển nó thành một bài toán LP."})}
+             return
         
         if self.state['expectation'] == 'awaiting_story':
              # Xử lý câu chuyện... (Logic này có thể được thêm vào sau)
@@ -315,7 +376,9 @@ class DialogManager:
                 elif "đơn hình" in msg_lower or "simplex" in msg_lower: solver_to_use = "simple_dictionary"
                 elif "đồ thị" in msg_lower or "hình học" in msg_lower: solver_to_use = "geometric"
             
-            return await self._solve_current_problem(solver_to_use)
+            async for event in self._solve_current_problem(solver_to_use):
+                yield event
+            return
 
         # Ưu tiên 4: Phân tích ý định từ câu nói
         nlp_result = self.rule_based_nlp.parse_intent_and_entities(user_message)
@@ -323,22 +386,33 @@ class DialogManager:
         entities = nlp_result.get("entities", {})
 
         if intent == "request_step_explanation":
-            return await self._handle_intent_request_step_explanation(entities)
+            async for event in self._handle_intent_request_step_explanation(entities):
+                yield event
+            return
         
         if intent == "request_specific_solver":
-            return await self._handle_intent_request_specific_solver(entities)
+            async for event in self._handle_intent_request_specific_solver(entities):
+                yield event
+            return
 
         if intent == "request_theoretical_concept":
             concept = entities.get("concept_name", "khái niệm đó")
-            explanation = await self.gpt_nlp.explain_lp_concept(concept) or f"Mình chưa có thông tin về '{concept}'."
-            return self._finalize_response({"text_response": explanation, "allow_html": True, "suggestions": ["Quy tắc Bland là gì?", "Biến nhân tạo là gì?"]})
+            yield {"type": "chunk", "content": ""}
+            explanation = await self.openai_client.explain_lp_concept(concept) or f"Mình chưa có thông tin về '{concept}'."
+            yield {"type": "complete", "result": self._finalize_response({"text_response": explanation, "allow_html": True, "suggestions": ["Quy tắc Bland là gì?", "Biến nhân tạo là gì?"]})}
+            return
         
         # Mặc định: Dùng LLM để trò chuyện
-        if self.gpt_nlp.client:
-            response_text = await self.gpt_nlp.handle_general_conversation(user_message, self.state["history"]) or "Xin lỗi, mình chưa hiểu ý bạn. Bạn có thể nói rõ hơn được không?"
-            return self._finalize_response({"text_response": response_text, "suggestions": ["Giải bài toán mẫu"]})
+        if self.openai_client.client:
+            response_full = ""
+            async for chunk in self.openai_client.handle_general_conversation_stream(user_message, self.state["history"]):
+                response_full += chunk
+                yield {"type": "chunk", "content": chunk}
+            yield {"type": "complete", "result": self._finalize_response({"text_response": response_full or "Xin lỗi, mình chưa hiểu ý bạn. Bạn có thể nói rõ hơn được không?", "suggestions": ["Giải bài toán mẫu"]})}
+            return
         else:
-            return self._finalize_response({"text_response": "Chào bạn, mình là trợ lý Quy hoạch tuyến tính. Mình có thể giúp gì cho bạn?", "suggestions": ["Giải bài toán mẫu"]})
+            yield {"type": "complete", "result": self._finalize_response({"text_response": "Chào bạn, mình là trợ lý Quy hoạch tuyến tính. Mình có thể giúp gì cho bạn?", "suggestions": ["Giải bài toán mẫu"]})}
+            return
 
     # --- Các hàm định dạng (Formatting Functions) ---
     def _format_problem_summary(self, internal_def: Dict) -> str:

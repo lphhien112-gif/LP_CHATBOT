@@ -5,18 +5,25 @@ services:
     build: .
     container_name: lp_chatbot_api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     environment:
       - DEBUG=False
-      - SERVER_HOST=0.0.0.0
+      - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - LOG_LEVEL=WARNING
       - REDIS_URL=redis://redis:6379/0
-      # - GOOGLE_API_KEY=${GOOGLE_API_KEY} # Truyền key từ môi trường host vào
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MODEL_NAME=${MODEL_NAME:-gpt-4.1-nano-2025-04-14}
     depends_on:
       redis:
         condition: service_healthy
     networks:
       - lp_network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://${SERVER_HOST:-localhost}:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
