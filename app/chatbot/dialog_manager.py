@@ -192,9 +192,16 @@ class DialogManager:
 
     async def _handle_sample_choice(self, user_message: str):
         """Xử lý khi người dùng chọn một bài toán mẫu."""
+        choice_match = re.search(r'\d+', user_message)
+        
+        if not choice_match:
+            # User sent non-numeric input → exit awaiting_sample_choice, reroute to normal flow
+            self.state['expectation'] = None
+            # Yield a special marker so handle_message knows to re-process this message normally
+            yield {"type": "_reroute"}
+            return
+        
         try:
-            choice_match = re.search(r'\d+', user_message)
-            if not choice_match: raise ValueError
             choice_index = int(choice_match.group(0)) - 1
             
             if 0 <= choice_index < len(self.sample_problems):
@@ -204,11 +211,17 @@ class DialogManager:
                 parsed_lp, _ = self.lp_formula_parser(chosen_problem['full_problem_string'])
                 self.state['current_problem_definition'] = parsed_lp
                 self.state['expectation'] = None # Xóa trạng thái chờ
-                async for event in self._solve_current_problem("pulp_cbc"):
+                # Dùng solver ưu tiên từ JSON để hiện step-by-step tableaus
+                preferred_solver = chosen_problem.get('preferred_solver', 'simple_dictionary')
+                async for event in self._solve_current_problem(preferred_solver):
                     yield event
                 return
             else:
-                raise IndexError
+                suggestions = [f"Chọn bài toán {i+1}" for i in range(len(self.sample_problems))]
+                yield {"type": "complete", "result": self._finalize_response({
+                    "text_response": f"Vui lòng chọn số từ 1 đến {len(self.sample_problems)}.",
+                    "suggestions": suggestions
+                })}
         except (ValueError, IndexError):
             yield {"type": "complete", "result": self._finalize_response({"text_response": "Lựa chọn không hợp lệ. Bạn vui lòng chọn lại từ danh sách nhé."})}
 
@@ -311,9 +324,14 @@ class DialogManager:
                     return
 
         if self.state["expectation"] == "awaiting_sample_choice":
+            rerouted = False
             async for event in self._handle_sample_choice(user_message):
+                if event.get("type") == "_reroute":
+                    rerouted = True
+                    break  # Don't return — fall through to normal flow below
                 yield event
-            return
+            if not rerouted:
+                return
 
         # Ưu tiên 2: Các lệnh đặc biệt
         if user_message.lower() in ["bắt đầu lại", "reset", "làm mới", "bài toán mới"]:

@@ -1,219 +1,345 @@
-Ví dụ cho xoay đơn hình:
+# VÍ DỤ GIẢI BÀI TOÁN QHTT — TRÌNH BÀY XOAY TRỰC TIẾP
 
-### 1. Đề bài (Bài toán gốc)
-*   **Hàm mục tiêu:** $\max z = 3x_1 + 2x_2$
-*   **Hệ ràng buộc:**
-    (1) $-x_1 + x_2 \le 1$
-    (2) $x_1 + 2x_2 \le 6$
-    *Điều kiện:* $x_1 \ge 0, x_2 \ge 0$
+Tài liệu này minh họa các phương pháp giải bài toán QHTT theo đúng cấu trúc lý thuyết trong `theory.md`. Mọi bước xoay đều được trình bày dưới dạng bảng `array` LaTeX với mũi tên $\overset{\downarrow}{}$ (biến vào) và $\leftarrow$ (biến ra).
 
 ---
 
-### 2. Các bước giải chi tiết
+## 1. Phương pháp Đơn hình gốc (Mục 3.2 — $b > 0$)
 
-**Bước 1: Chuyển về dạng chuẩn và Xây dựng từ vựng xuất phát**
-Trước tiên, ta đổi bài toán $\max$ thành bài toán $\min$ bằng cách đặt $z' = -z$. 
-$\Rightarrow$ Hàm mục tiêu mới: $\min z' = -3x_1 - 2x_2$.
+**Bài toán:**
 
-Tiếp theo, thêm các biến bù (biến phụ) $w_1 \ge 0$ và $w_2 \ge 0$ vào hệ bất phương trình để biến chúng thành phương trình:
-*   $-x_1 + x_2 + w_1 = 1 \Rightarrow w_1 = 1 + x_1 - x_2$
-*   $x_1 + 2x_2 + w_2 = 6 \Rightarrow w_2 = 6 - x_1 - 2x_2$
+$$\begin{cases}
+\min z = -3x_1 - 2x_2 \\
+x_1 + 2x_2 \le 6 \\
+2x_1 + x_2 \le 8 \\
+x_1, x_2 \ge 0
+\end{cases}$$
 
-**Từ vựng xuất phát** được lập bằng cách biểu diễn các biến cơ sở ($w_1, w_2$) và hàm mục tiêu theo các biến ngoài hệ ($x_1, x_2$):
-*   $w_1 = 1 + x_1 - x_2$
-*   $w_2 = 6 - x_1 - 2x_2$
-*   $z' = -3x_1 - 2x_2$
+**Từ vựng xuất phát:**
 
-*Đánh giá khả thi:* Khi cho $x_1 = 0, x_2 = 0$, ta có $w_1 = 1 \ge 0$ và $w_2 = 6 \ge 0$. Hệ hằng số vế phải đều dương nên từ vựng này khả thi, có thể bắt đầu lặp.
+\[
+\begin{array}{rrl}
+& z &= \overset{\downarrow}{-} 3x_1 - 2x_2 \\
+\hline
+& w_1 &= 6 - x_1 - 2x_2 \quad \frac{6}{1} = 6 \\
+\leftarrow & w_2 &= 8 - 2x_1 - x_2 \quad \frac{8}{2} = 4
+\end{array}
+\]
 
-**Bước 2: Xoay đơn hình (Lần lặp 1)**
-*   **Chọn biến vào (Entering Variable):** Nhìn vào hàm mục tiêu $z' = -3x_1 - 2x_2$, cả hai biến $x_1$ và $x_2$ đều có hệ số âm ($-3$ và $-2$). Theo quy tắc, ta chọn biến có hệ số âm nhất (hoặc theo chỉ số nhỏ nhất) làm biến vào $\Rightarrow$ **Chọn $x_1$**.
-*   **Chọn biến ra (Leaving Variable):** Ta xét xem $w_1$ hay $w_2$ sẽ bị giới hạn trước khi $x_1$ tăng lên (với $x_2 = 0$):
-    *   Tại phương trình 1: $w_1 = 1 + x_1$. Khi $x_1$ tăng, $w_1$ cũng tăng theo $\Rightarrow$ $w_1$ không giới hạn sự gia tăng của $x_1$.
-    *   Tại phương trình 2: $w_2 = 6 - x_1$. Để đảm bảo $w_2 \ge 0$, ta phải có $x_1 \le 6$.
-    *   $\Rightarrow$ $w_2$ là biến cản trở khắt khe nhất nên ta **chọn $w_2$ làm biến ra**.
+Biến vào: $x_1$ (hệ số âm nhất $-3$). Biến ra: $w_2$ (tỷ số nhỏ nhất $4$).
+$x_1 = 4 - 0,5x_2 - 0,5w_2$
 
-**Bước 3: Lập từ vựng mới (Từ vựng trung gian)**
-Ta rút $x_1$ từ phương trình của $w_2$ để đẩy $x_1$ vào hệ cơ sở và đẩy $w_2$ ra ngoài:
-$w_2 = 6 - x_1 - 2x_2 \Rightarrow \mathbf{x_1 = 6 - 2x_2 - w_2}$
+\[
+\begin{array}{rrl}
+& z &= -12 \overset{\downarrow}{-} 0,5x_2 + 1,5w_2 \\
+\hline
+\leftarrow & w_1 &= 2 - 1,5x_2 + 0,5w_2 \quad \frac{2}{1,5} = \frac{4}{3} \\
+& x_1 &= 4 - 0,5x_2 - 0,5w_2 \quad \frac{4}{0,5} = 8
+\end{array}
+\]
 
-Thế $x_1$ vào phương trình của $w_1$ và hàm mục tiêu $z'$:
-*   $w_1 = 1 + (6 - 2x_2 - w_2) - x_2 \Rightarrow \mathbf{w_1 = 7 - 3x_2 - w_2}$
-*   $z' = -3(6 - 2x_2 - w_2) - 2x_2 = -18 + 6x_2 + 3w_2 - 2x_2 \Rightarrow \mathbf{z' = -18 + 4x_2 + 3w_2}$
+Biến vào: $x_2$ (hệ số $-0,5$). Biến ra: $w_1$ (tỷ số $\frac{4}{3}$).
+$x_2 = \frac{4}{3} - \frac{2}{3}w_1 + \frac{1}{3}w_2$
 
-**Hệ từ vựng mới thu được:**
-*   $x_1 = 6 - 2x_2 - w_2$
-*   $w_1 = 7 - 3x_2 - w_2$
-*   $z' = -18 + 4x_2 + 3w_2$
+\[
+\begin{array}{rrl}
+& z &= -\frac{38}{3} + \frac{1}{3}w_1 + \frac{4}{3}w_2 \\
+\hline
+& x_2 &= \frac{4}{3} - \frac{2}{3}w_1 + \frac{1}{3}w_2 \\
+& x_1 &= \frac{10}{3} + \frac{1}{3}w_1 - \frac{2}{3}w_2
+\end{array}
+\]
 
-**Bước 4: Kiểm tra tính tối ưu và Kết luận**
-*   Nhìn vào hàm mục tiêu ở từ vựng mới: $z' = -18 + 4x_2 + 3w_2$.
-*   Tất cả các hệ số của các biến ngoài hệ ($x_2$ và $w_2$) hiện tại đều mang dấu dương ($+4$ và $+3$). Điều này có nghĩa là việc tăng bất kỳ biến nào lên cũng chỉ làm giá trị của $z'$ tăng theo (kém đi đối với bài toán $\min$), nên **từ vựng này đã đạt tối ưu**.
-*   Cho các biến ngoài hệ bằng $0$ ($x_2 = 0, w_2 = 0$), ta đọc được nghiệm tối ưu:
-    *   $x_1 = 6$
-    *   $w_1 = 7$
-    *   $z' = -18$
-
-**Kết luận cuối cùng cho bài toán gốc ($\max z$):** 
-Nghiệm tối ưu của bài toán là $\mathbf{(x_1, x_2) = (6, 0)}$ và giá trị lớn nhất của hàm mục tiêu là $\mathbf{z^* = -(-18) = 18}$. 
-
-*(Lưu ý đính chính: Ở một số hội thoại trước, có nhắc nhầm nghiệm là (4,1) và z=14. Dựa theo chính xác các bước giải ma trận xoay đơn hình trong sổ tay, kết quả chuẩn xác là (6,0) với z=18).*
+Cho $w_1 = 0, w_2 = 0, x_1 = \frac{10}{3}, x_2 = \frac{4}{3}$ \\
+GTTƯ: $z = -\frac{38}{3}$
 
 ---
 
-### 3. Thuật toán 2 Pha (Two-Phase Algorithm) (Bao gồm chuyển Pha 2)
-Áp dụng khi từ vựng xuất phát ban đầu vi phạm tính khả thi (có hằng số $b_i < 0$).
+## 2. Phương pháp xoay Bland (Mục 3.3 — $\exists b_i = 0$)
 
-**Bài toán gốc:** $\min z = -x_1 - 3x_2$
-**Ràng buộc:**
-(1) $-x_1 + x_2 \le 1$
-(2) $x_1 + x_2 \ge 2 \Rightarrow -x_1 - x_2 \le -2$  *(hằng số âm)*
-(3) $x_1 \le 3$
+\textbf{Phương pháp xoay Bland:}
 
-**Pha 1: Bài toán bổ trợ**
-Thêm biến giả $x_0 \ge 0$. Hàm mục tiêu Pha 1 là $\min w = x_0$ (hay $\max -w = -x_0$).
-Từ vựng khởi tạo Pha 1:
-\[
-\begin{array}{rrl}
-& -w &= 0 - x_0 \\
-\hline
-& w_1 &= 1 + x_1 - x_2 \overset{\downarrow}{+} x_0 \\
-\leftarrow & w_2 &= -2 + x_1 + x_2 \overset{\downarrow}{+} x_0 \\
-& w_3 &= 3 - x_1 \overset{\downarrow}{+} x_0 
-\end{array}
-\]
+\textbf{Chọn biến vào:} Trong số các biến không cơ sở có hệ số âm ($G < 0$) \\
+Chọn \textbf{biến có chỉ số nhỏ nhất} ($x_1, x_2, x_3, w_1, w_2$)
 
-*Xoay đặc biệt:* Ép $x_0$ vào hệ (với hệ số $+1$), chọn biến có hằng số âm nhất ($w_2$) ra khỏi hệ.
-$x_0 = 2 - x_1 - x_2 + w_2$
+\textbf{Chọn biến ra:} Y như đơn hình tính $\frac{b_i}{a_{ij}} (=0)$
+
+\textbf{\underline{VD:}}
+
+Giả sử ta đang ở giữa bài toán và gặp từ vựng suy biến:
 
 \[
 \begin{array}{rrl}
-& -w &= -2 + x_1 \overset{\downarrow}{+} x_2 - w_2 \\
+& z &= 10 \overset{\downarrow}{-} 2x_1 - 3x_2 - 3x_3 \\
 \hline
-\leftarrow & w_1 &= 3 - 2x_2 + w_2 \quad \frac{3}{2} = 1,5 \\
-& x_0 &= 2 - x_1 - x_2 + w_2 \quad \frac{2}{1} = 2 \\
-& w_3 &= 5 - 2x_1 - x_2 + w_2 \quad \frac{5}{1} = 5
+\leftarrow & w_1 &= 0 - x_1 + 2x_2 + x_3 \quad \frac{0}{1} = 0 \\
+& w_2 &= 5 - 2x_1 - x_2 + 2x_3 \quad \frac{5}{2} = 2,5
 \end{array}
 \]
 
-*Lặp Phase 1 - Xoay 1:* Biến vào $x_2$, biến ra $w_1$.
-$x_2 = 1,5 - 0,5w_1 + 0,5w_2$
+Theo Dantzig thông thường: chọn $x_2$ hoặc $x_3$ (hệ số âm nhất $-3$).
+Theo **Bland**: trong $\{x_1, x_2, x_3\}$ đều có hệ số âm $\rightarrow$ chọn $x_1$ (chỉ số nhỏ nhất).
+Biến ra: $w_1$ có tỷ số $0$ (nhỏ nhất). Nếu nhiều dòng cùng tỷ số $0$, cũng chọn biến có chỉ số nhỏ nhất.
+
+$x_1 = 0 - w_1 + 2x_2 + x_3$
 
 \[
 \begin{array}{rrl}
-& -w &= -0,5 \overset{\downarrow}{+} x_1 - 0,5w_1 - 0,5w_2 \\
+& z &= 10 + 2w_1 - 7x_2 - 5x_3 \\
 \hline
-& x_2 &= 1,5 - 0,5w_1 + 0,5w_2 \\
-\leftarrow & x_0 &= 0,5 - x_1 + 0,5w_1 + 0,5w_2 \quad \frac{0,5}{1} = 0,5 \\
-& w_3 &= 3,5 - 2x_1 + 0,5w_1 + 0,5w_2 \quad \frac{3,5}{2} = 1,75
+& x_1 &= 0 - w_1 + 2x_2 + x_3 \\
+& w_2 &= 5 + 2w_1 - 5x_2
 \end{array}
 \]
 
-*Lặp Phase 1 - Xoay 2:* Biến vào $x_1$, biến ra $x_0$. 
-$x_1 = 0,5 - x_0 + 0,5w_1 + 0,5w_2$.
-
-\[
-\begin{array}{rrl}
-& -w &= 0 - x_0 \\
-\hline
-& x_1 &= 0,5 - x_0 + 0,5w_1 + 0,5w_2 \\
-& x_2 &= 1,5 + 0,5x_0 - 0,5w_1 + 0,5w_2 \\
-& w_3 &= 2,5 + 2x_0 - 0,5w_1 - 0,5w_2
-\end{array}
-\]
-*Kết thúc Pha 1:* Hàm mục tiêu đạt giá trị tối đa $-w = 0$, nghĩa là $x_0 = 0$. Từ vựng đã chấp nhận được!
-
-**Pha 2: Lắp ghép để giải bài toán gốc**
-Xóa hoàn toàn $x_0$ đi. Lấy hàm mục tiêu gốc $\min z = -x_1 - 3x_2$ thay các phương trình của biến vào:
-$z = -(0,5 + 0,5w_1 + 0,5w_2) - 3(1,5 - 0,5w_1 + 0,5w_2) = -5 + w_1 - 2w_2$
-
-Từ vựng ban đầu của Pha 2 được dựng lên:
-\[
-\begin{array}{rrl}
-& z &= -5 + w_1 \overset{\downarrow}{-} 2w_2 \\
-\hline
-& x_1 &= 0,5 + 0,5w_1 + 0,5w_2 \\
-& x_2 &= 1,5 - 0,5w_1 + 0,5w_2 \\
-\leftarrow & w_3 &= 2,5 - 0,5w_1 - 0,5w_2 \quad \frac{2,5}{0,5} = 5
-\end{array}
-\]
-Do là bài toán $\min z$, ta chọn biến có hệ số âm đi vào $\Rightarrow$ $w_2$ vào. Biến ra là $w_3$.
-$0,5w_2 = 2,5 - 0,5w_1 - w_3 \Rightarrow w_2 = 5 - w_1 - 2w_3$
-
-\[
-\begin{array}{rrl}
-& z &= -15 + 3w_1 + 4w_3 \\
-\hline
-& x_1 &= 3 - w_3 \\
-& x_2 &= 4 - w_1 - w_3 \\
-& w_2 &= 5 - w_1 - 2w_3
-\end{array}
-\]
-Hàm mục tiêu $z$ có tất cả hệ số $\ge 0$, do đó hàm đã đạt giá trị **nhỏ nhất**!
-Kết luận: $\min z = -15$ tại nghiệm tối ưu cấu thành với $x_1 = 3, x_2 = 4$.
+Thuật toán tiếp tục tiến lên mà không bị mắc kẹt tại $b_i = 0$.
 
 ---
 
-### 4. Phương pháp Đơn hình Đối ngẫu (Dual Simplex Method)
-Khởi đầu từ một từ vựng tối ưu (hệ số hàm mục tiêu $\le 0$ đối với bài toán max) nhưng vi phạm ở hằng số ($b_i < 0$).
+## 3. Thuật toán 2 Pha (Mục 3.4 — $\exists b_i < 0$)
 
-**Bài toán:** $\min z = 2x_1 + 3x_2$ với ràng buộc $x_1 + x_2 \ge 2 \Rightarrow -x_1 - x_2 \le -2$.
-Đổi để giải: $\max -z = -2x_1 - 3x_2$.
+**Bài toán:**
+
+$$\begin{cases}
+\min z = x_1 + x_2 \\
+-x_1 - x_2 \le -2 \quad (\exists b_i < 0) \\
+x_1 - x_2 \le 1 \\
+x_1, x_2 \ge 0
+\end{cases}$$
+
+### Pha 1: Bài toán bổ trợ $(\Delta)$: $\min \xi = x_0$
+
+Từ vựng xuất phát $(\Delta)$:
 
 \[
 \begin{array}{rrl}
-& -z &= -2x_1 - 3x_2 \\
+& \xi &= 0 + x_0 \\
 \hline
-\leftarrow & w_1 &= -2 \overset{\downarrow}{+} x_1 + x_2 
+\leftarrow & w_1 &= -2 + x_1 + x_2 \overset{\downarrow}{+} x_0 \\
+& w_2 &= 1 - x_1 + x_2 + x_0
 \end{array}
 \]
-*Quy tắc xoay đối ngẫu (ngược với đơn hình gốc):*
-- **Chọn biến ra trước:** Chọn phương trình có hằng số âm nhất $\Rightarrow$ chọn **$w_1$**.
-- **Chọn biến vào sau:** Lấy độ lớn hệ số hàm mục tiêu chia cho hệ số *dương* tương ứng trên phương trình biến ra. 
-  * Thay $x_1$: $\frac{|-2|}{1} = 2$
-  * Thay $x_2$: $\frac{|-3|}{1} = 3$
-  * Chọn min tỷ số $\Rightarrow$ **biến vào là $x_1$**.
 
-Thực hiện rút $x_1$ từ phương trình của $w_1$:
-$w_1 = -2 + x_1 + x_2 \Rightarrow \mathbf{x_1 = 2 - x_2 + w_1}$
+Xoay đặc biệt: biến vào $x_0$, biến ra $w_1$ (hằng số âm nhất $-2$).
+$x_0 = 2 - x_1 - x_2 + w_1$
 
-Tính toán từ vựng mới:
 \[
 \begin{array}{rrl}
-& -z &= -4 - x_2 - 2w_1 \\
+& \xi &= 2 \overset{\downarrow}{-} x_1 - x_2 + w_1 \\
 \hline
-& x_1 &= 2 - x_2 + w_1 
+& x_0 &= 2 - x_1 - x_2 + w_1 \quad \frac{2}{1} = 2 \\
+\leftarrow & w_2 &= 3 - 2x_1 + w_1 \quad \frac{3}{2} = 1,5
 \end{array}
 \]
-Từ vựng mới có hàm mục tiêu tối ưu (hệ số đều âm) và hằng số dương (khả thi). Bài toán kết thúc với thuật toán kết hợp tại GTTƯ: $z = 4$ tại $x_1 = 2, x_2 = 0$.
+
+Biến vào: $x_1$ (hệ số $-1$). Biến ra: $w_2$ (tỷ số $1,5$).
+$x_1 = 1,5 - 0,5w_2 + 0,5w_1$
+
+\[
+\begin{array}{rrl}
+& \xi &= 0,5 \overset{\downarrow}{-} x_2 + 0,5w_1 + 0,5w_2 \\
+\hline
+\leftarrow & x_0 &= 0,5 - x_2 + 0,5w_1 + 0,5w_2 \quad \frac{0,5}{1} = 0,5 \\
+& x_1 &= 1,5 + 0,5w_1 - 0,5w_2
+\end{array}
+\]
+
+Biến vào: $x_2$ (hệ số $-1$). Biến ra: $x_0$ (tỷ số $0,5$).
+$x_2 = 0,5 - x_0 + 0,5w_1 + 0,5w_2$
+
+\[
+\begin{array}{rrl}
+& \xi &= 0 + x_0 \\
+\hline
+& x_2 &= 0,5 - x_0 + 0,5w_1 + 0,5w_2 \\
+& x_1 &= 1,5 + 0,5w_1 - 0,5w_2
+\end{array}
+\]
+
+Kết thúc Pha 1: $\xi = 0 \Rightarrow x_0 = 0$. Từ vựng đã chấp nhận được!
+
+### Pha 2: Lắp hàm mục tiêu gốc
+
+Cho $x_0 = 0$. Thế vào hàm mục tiêu gốc $z = x_1 + x_2$:
+$z = (1,5 + 0,5w_1 - 0,5w_2) + (0,5 + 0,5w_1 + 0,5w_2) = 2 + w_1$
+
+\[
+\begin{array}{rrl}
+& z &= 2 + w_1 \\
+\hline
+& x_2 &= 0,5 + 0,5w_1 + 0,5w_2 \\
+& x_1 &= 1,5 + 0,5w_1 - 0,5w_2
+\end{array}
+\]
+
+Mọi hệ số của $z$ đều $\ge 0$ $\Rightarrow$ Từ vựng tối ưu, không cần xoay thêm!
+Cho $w_1 = 0, w_2 = 0, x_1 = 1,5, x_2 = 0,5$ \\
+GTTƯ: $z = 2$
 
 ---
 
-### 5. Lý thuyết Đối ngẫu và Độ lệch bù (Complementary Slackness)
-Phương pháp tìm nghiệm bài toán gốc (P) rất nhanh khi đã biết nghiệm bài toán đối ngẫu (D) mà không cần lập từ vựng xoay.
+## 4. Thuật toán Đơn hình Đối ngẫu (Mục 3.7 — $\exists b_i < 0$)
+
+**Bài toán:**
+
+$$\begin{cases}
+\min z = 2x_1 + 3x_2 \\
+-x_1 - 2x_2 \le -4 \\
+-2x_1 - x_2 \le -5 \\
+x_1, x_2 \ge 0
+\end{cases}$$
+
+**Từ vựng xuất phát** (hệ số $z$ đều $\ge 0$ nhưng $b_i < 0$):
+
+\[
+\begin{array}{rrl}
+& z &= 2x_1 + 3x_2 \\
+\hline
+& w_1 &= -4 + x_1 + 2x_2 \\
+\leftarrow & w_2 &= -5 + 2\overset{\downarrow}{x_1} + x_2
+\end{array}
+\]
+
+Chọn biến ra trước: $w_2$ ($b_2 = -5$ âm nhất).
+Chọn biến vào sau: $\min\left\{\frac{2}{2}, \frac{3}{1}\right\} = \min(1, 3) = 1 \Rightarrow x_1$.
+
+$x_1 = 2,5 - 0,5x_2 + 0,5w_2$
+
+\[
+\begin{array}{rrl}
+& z &= 5 + 2\overset{\downarrow}{x_2} + w_2 \\
+\hline
+\leftarrow & w_1 &= -1,5 + 1,5x_2 + 0,5w_2 \\
+& x_1 &= 2,5 - 0,5x_2 + 0,5w_2
+\end{array}
+\]
+
+Biến ra: $w_1$ ($b_1 = -1,5$ âm).
+Chọn biến vào: $\min\left\{\frac{2}{1,5}, \frac{1}{0,5}\right\} = \min(\frac{4}{3}, 2) = \frac{4}{3} \Rightarrow x_2$.
+
+$x_2 = 1 + \frac{2}{3}w_1 - \frac{1}{3}w_2$
+
+\[
+\begin{array}{rrl}
+& z &= 7 + \frac{4}{3}w_1 + \frac{1}{3}w_2 \\
+\hline
+& x_2 &= 1 + \frac{2}{3}w_1 - \frac{1}{3}w_2 \\
+& x_1 &= 2 - \frac{1}{3}w_1 + \frac{2}{3}w_2
+\end{array}
+\]
+
+Mọi $b_i \ge 0$ và mọi hệ số $z \ge 0$ $\Rightarrow$ Tối ưu!
+Cho $w_1 = 0, w_2 = 0, x_1 = 2, x_2 = 1$ \\
+GTTƯ: $z = 7$
+
+---
+
+## 5. Thuật toán 2 Pha Đối ngẫu - Gốc (Mục 3.8)
+
+**Tình huống:** $\exists b_i < 0$ nhưng hệ số $z$ có giá trị âm $\Rightarrow$ không chạy được Đơn hình Đối ngẫu trực tiếp.
+
+$$\begin{cases}
+\min z = -2x_1 + 3x_2 \\
+-x_1 - x_2 \le -4 \\
+x_1, x_2 \ge 0
+\end{cases}$$
+
+### Pha 1: Bài toán bổ trợ
+
+Lấy $|c_i|$ để ép hệ số $\ge 0$: $z_{BT} = 2x_1 + 3x_2$
+
+\[
+\begin{array}{rrl}
+& z_{BT} &= 2\overset{\downarrow}{x_1} + 3x_2 \\
+\hline
+\leftarrow & w_1 &= -4 + x_1 + x_2 \quad \frac{|-4|}{1}
+\end{array}
+\]
+
+Chạy Đơn hình Đối ngẫu: biến ra $w_1$ ($b = -4$), biến vào $x_1$ ($\frac{2}{1} < \frac{3}{1}$).
+$x_1 = 4 - x_2 + w_1$
+
+\[
+\begin{array}{rrl}
+& z_{BT} &= 8 + x_2 + 2w_1 \\
+\hline
+& x_1 &= 4 - x_2 + w_1
+\end{array}
+\]
+
+Mọi $b_i \ge 0$ $\Rightarrow$ Từ vựng khả thi thu được!
+
+### Pha 2: Lắp hàm mục tiêu gốc
+
+Bỏ $z_{BT}$, lắp $z = -2x_1 + 3x_2$:
+$z = -2(4 - x_2 + w_1) + 3x_2 = -8 + 5x_2 - 2w_1$
+
+\[
+\begin{array}{rrl}
+& z &= -8 + 5x_2 - 2w_1 \\
+\hline
+& x_1 &= 4 - x_2 + w_1
+\end{array}
+\]
+
+Mọi hệ số $z$ nhìn: $+5 \ge 0$ nhưng $-2 < 0$. Cần xoay thêm?
+Thực tế $w_1$ là biến bù (luôn $\ge 0$), hệ số $-2$ ứng với $w_1$: dòng duy nhất có $w_1$ với hệ số $+1 > 0$ nên không có biến ra hợp lệ.
+$\Rightarrow$ Bài toán **không giới nội** ($z \to -\infty$).
+
+---
+
+## 6. Xây dựng Bài toán Đối ngẫu (Mục 3.5)
+
+**Bài toán Gốc (P):**
+
+$$\begin{cases}
+\min 5x_1 - 2x_2 \\
+2x_1 + x_2 \ge 3 \\
+x_1 - 3x_2 \le 4 \\
+x_1 \ge 0, x_2 \text{ tự do}
+\end{cases}$$
+
+**Bài toán Đối ngẫu (D):**
+
+| Gốc (P) | Đối ngẫu (D) |
+| --- | --- |
+| $\min 5x_1 - 2x_2$ | $\max 3y_1 + 4y_2$ |
+| RB1: $\ge 3$ | $y_1 \ge 0$ |
+| RB2: $\le 4$ | $y_2 \le 0$ |
+| $x_1 \ge 0$ | $2y_1 + y_2 \le 5$ |
+| $x_2$ tự do | $y_1 - 3y_2 = -2$ |
+
+$$\Rightarrow (D): \begin{cases}
+\max 3y_1 + 4y_2 \\
+2y_1 + y_2 \le 5 \\
+y_1 - 3y_2 = -2 \\
+y_1 \ge 0, y_2 \le 0
+\end{cases}$$
+
+---
+
+## 7. Độ lệch bù (Complementary Slackness — Mục 3.6)
 
 **Bài toán gốc (P):** $\max z = 3x_1 + 2x_2$
-(1) $x_1 \le 4 \quad (w_1)$
-(2) $x_2 \le 6 \quad (w_2)$
-(3) $x_1 + x_2 \le 8 \quad (w_3)$
+(1) $x_1 \le 4$, (2) $x_2 \le 6$, (3) $x_1 + x_2 \le 8$
 
 **Bài toán đối ngẫu (D):** $\min v = 4y_1 + 6y_2 + 8y_3$
-(1) $y_1 + y_3 \ge 3$
-(2) $y_2 + y_3 \ge 2$
+(1) $y_1 + y_3 \ge 3$, (2) $y_2 + y_3 \ge 2$
 
-*Giả sử đã biết sẵn nghiệm tối ưu của (D):* $y^* = (0, 0, 3)$. 
+Giả sử đã biết nghiệm tối ưu của (D): $y^* = (1, 0, 2)$.
 
 **Áp dụng định lý độ lệch bù:**
-- **Bước 1:** Xét các ràng buộc của bài toán đối ngẫu thế $y^*$ vào:
-  + (1) $0 + 3 = 3 \ge 3$ (Ràng buộc chặt) $\Rightarrow x_1 \ge 0$.
-  + (2) $0 + 3 = 3 > 2$ (Ràng buộc lỏng, slack dư $1$) $\Rightarrow \mathbf{x_2 = 0}$ (biến gốc tương ứng phải bằng $0$).
 
-- **Bước 2:** Xét các giá trị của biến đối ngẫu $y^*$:
-  + $y_1 = 0 \Rightarrow$ không cung cấp thông tin thêm.
-  + $y_2 = 0 \Rightarrow$ không cung cấp thông tin thêm.
-  + $y_3 = 3 > 0 \Rightarrow$ Ràng buộc (3) của bài toán gốc bị ép chặt (không còn slack $w_3 = 0$) $\Rightarrow \mathbf{x_1 + x_2 = 8}$.
+**Bước 1:** Thế $y^*$ vào ràng buộc của (D):
+* (1) $1 + 2 = 3 \ge 3$ (Chặt) $\Rightarrow$ $x_1$ có thể $> 0$.
+* (2) $0 + 2 = 2 \ge 2$ (Chặt) $\Rightarrow$ $x_2$ có thể $> 0$.
 
-- **Bước 3:** Giải hệ phương trình tuyến tính dựa trên các dữ liệu bị ép:
-$\begin{cases} x_2 = 0 \\ x_1 + x_2 = 8 \end{cases} \Rightarrow \mathbf{x_1 = 8, x_2 = 0}$
+**Bước 2:** Xét $y^*$:
+* $y_1 = 1 > 0 \Rightarrow$ RB (1) của (P) chặt: $x_1 = 4$.
+* $y_2 = 0 \Rightarrow$ Không ép thêm thông tin.
+* $y_3 = 2 > 0 \Rightarrow$ RB (3) của (P) chặt: $x_1 + x_2 = 8$.
 
-Vị chi, nghiệm gốc tối ưu là $x^* = (8, 0)$, hoàn toàn có thể tính nhẩm ra đáp án ngay lập tức qua đối ngẫu!
+**Bước 3:** Giải hệ:
+$\begin{cases} x_1 = 4 \\ x_1 + x_2 = 8 \end{cases} \Rightarrow x_1 = 4, x_2 = 4$
+
+GTTƯ: $z = 3(4) + 2(4) = 20$.

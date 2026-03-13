@@ -251,6 +251,36 @@
     </footer>
 
     <script>
+        // ─── LaTeX-safe Markdown Parser ─────────────────────────────────────────
+        // Problem: marked.js treats \[ as escaped [ and \] as escaped ]
+        // → LaTeX delimiters get destroyed before KaTeX can render them.
+        // Fix: extract all LaTeX blocks → placeholder → run marked → restore.
+        function markedWithLatex(text) {
+            const saved = [];
+            const save = (str) => {
+                const key = `\x02LATEX${saved.length}\x03`;
+                saved.push(str);
+                return key;
+            };
+            // Protect $$ display math (must come before single $)
+            text = text.replace(/\$\$[\s\S]*?\$\$/g, save);
+            // Protect \[...\] display math
+            text = text.replace(/\\\[[\s\S]*?\\\]/g, save);
+            // Protect \(...\) inline math
+            text = text.replace(/\\\([\s\S]*?\\\)/g, save);
+            // Protect $...$ inline math (simple, single-line only to avoid greedy match)
+            text = text.replace(/\$[^$\n]+?\$/g, save);
+
+            // Run standard markdown parser
+            let html = marked.parse(text);
+
+            // Restore saved LaTeX blocks
+            saved.forEach((block, i) => {
+                html = html.replace(`\x02LATEX${i}\x03`, block);
+            });
+            return html;
+        }
+
         // ─── DOM Refs ──────────────────────────────────────────────────────────
         const messagesInner = document.getElementById('messages-inner');
         const chatMessages = document.getElementById('chat-messages');
@@ -343,26 +373,45 @@
                                     textContainer = els.textEl;
                                 }
                                 let content = data.content;
-                                if (data.type === 'chunk_escaped')
-                                    content = content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                // chunk_escaped: không escape <> vì content có thể chứa LaTeX \begin{} etc.
+                                // (escaping would prevent LaTeX from being recognized by KaTeX later)
 
-                                // Nếu chưa dùng Marked lúc đang stream thì append text thường
                                 textContainer.innerHTML += content;
                                 scrollToBottom();
 
+                                // Debounced KaTeX render trong quá trình streaming
+                                // (phòng trường hợp complete event không đến do LLM timeout)
+                                if (textContainer._katexTimer) clearTimeout(textContainer._katexTimer);
+                                textContainer._katexTimer = setTimeout(() => {
+                                    if (window.renderMathInElement) {
+                                        renderMathInElement(textContainer, {
+                                            delimiters: [
+                                                { left: '$$', right: '$$', display: true },
+                                                { left: '$', right: '$', display: false },
+                                                { left: '\\[', right: '\\]', display: true },
+                                                { left: '\\(', right: '\\)', display: false }
+                                            ],
+                                            throwOnError: false
+                                        });
+                                    }
+                                }, 400);
                             } else if (data.type === 'complete') {
                                 if (!botMsgEl) {
                                     const els = appendBotMessage('', true);
                                     botMsgEl = els.wrapper;
                                     textContainer = els.textEl;
                                 }
-                                const botRes = data.result.bot_response;
+
+                                // _finalize_response returns fields FLAT in result (not wrapped in bot_response)
+                                // web_routes.py error fallback DOES wrap in bot_response → handle both
+                                const result = data.result || {};
+                                const botRes = result.bot_response || result;  // flat first, nested fallback
 
                                 // Sử dụng marked.parse kết hợp với DOMPurify (nếu có) hoặc trực tiếp
-                                let finalHtml = botRes.text_response;
+                                let finalHtml = botRes.text_response || '';
                                 // Để hỗ trợ table và toán, parse markdown nếu allow_html là True
                                 if (botRes.allow_html) {
-                                    finalHtml = marked.parse(botRes.text_response);
+                                    finalHtml = markedWithLatex(finalHtml);
                                 } else {
                                     // Nếu chỉ là text thường từ GPT, thêm br
                                     finalHtml = finalHtml.replace(/\n/g, '<br>');
@@ -383,10 +432,13 @@
                                     });
                                 }
 
-                                if (botRes.problem_context) lastProblemContext = botRes.problem_context;
+                                // problem_context: in flat format it's at result.problem_context
+                                const problemCtx = result.problem_context || (result.bot_response && result.bot_response.problem_context);
+                                if (problemCtx) lastProblemContext = problemCtx;
                                 else if (messageText.toLowerCase().includes('bài toán mới')) lastProblemContext = null;
 
-                                if (botRes.suggestions?.length) displaySuggestions(botRes.suggestions);
+                                const suggestions = botRes.suggestions || [];
+                                if (suggestions.length) displaySuggestions(suggestions);
                                 scrollToBottom(true);
                             }
                         } catch (err) {
