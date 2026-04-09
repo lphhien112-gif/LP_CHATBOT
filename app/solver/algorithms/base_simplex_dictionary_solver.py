@@ -611,9 +611,10 @@ class BaseSimplexDictionarySolver(ABC):
                 if solution["objective_value"] is not None:
                     obj_val_s = f"{solution['objective_value']:g}".replace('.', ',')
                     
-                md = f"Cho ${all_vals_str}$ \\\\\n"
-                md += f"GTTƯ: $z = {obj_val_s}$\n"
+                md  = f"Cho $\\quad {all_vals_str}$\n\n"
+                md += f"**Giá trị tối ưu:** $z = {obj_val_s}$\n\n"
                 self.step_by_step_md.append(md)
+
 
         _append_conclusion_md()
         solution["step_by_step_md"] = self.step_by_step_md

@@ -28,6 +28,7 @@ from app.nlp.ai.prompts import (
     SUGGEST_IMPROVEMENTS_PROMPT,
     EXPLAIN_SIMPLEX_STEP_PROMPT,
     FORMAT_SOLVER_SOLUTION_PROMPT,
+    EXTRACT_LP_AS_STRUCTURED_PROMPT,
 )
 
 
@@ -160,6 +161,20 @@ class OpenAiClient:
     async def convert_story_to_lp(self, user_story: str) -> Optional[Dict[str, Any]]:
         prompt = CONVERT_STORY_TO_LP_PROMPT.format(user_story=user_story)
         return await self._call_llm_for_json(prompt)
+
+    async def extract_lp_as_structured(self, user_story: str) -> Optional[str]:
+        """Convert natural-language LP problem to standard LP text notation for re-parsing.
+        Returns a string like:
+            Maximize: 0.12s + 0.08b\nSubject to:\ns + b <= 100000\ns <= 50000
+        or None on failure.
+        """
+        if not self.client:
+            return None
+        prompt = EXTRACT_LP_AS_STRUCTURED_PROMPT.format(user_story=user_story)
+        result = await self._call_llm_api(prompt)
+        if result:
+            self._log(f"extract_lp_as_structured → {result[:200]}")
+        return result
         
     async def suggest_improvements(self, problem_context: Dict[str, Any]) -> Optional[str]:
         problem_def = problem_context.get("problem_definition", {})

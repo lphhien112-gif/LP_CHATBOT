@@ -127,23 +127,29 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
                 objective_part = obj_raw
                 constraints_part = ""
 
-        # Cắt bớt phần sau dấu ; hoặc dấu . (chỉ cắt nếu . có khoảng trắng theo sau hoặc ở cuối chuỗi)
-        objective_part = re.split(r';|\\.\\s|\\.$', objective_part)[0]
+        # Cắt bớt phần sau dấu ; đầu tiên (do newline→;) để lấy phần objective trước constraint
+        # Ví dụ: ": 3x + 2y;" → cần bỏ leading ":" và trailing ";"
+        objective_part = objective_part.lstrip(':;, \t').rstrip(';, \t')
+        # Nếu còn dấu ; ở giữa (nghĩa là constraints đã bị nhét vào objective_part), cắt tại ; đầu tiên
+        if ';' in objective_part:
+            objective_part = objective_part.split(';')[0].strip()
 
         # Lọc chỉ giữ lại các thành phần toán học hợp lệ (biến, số, phép tính)
         # Giữ lại cụm: Z =, f(x) =, số, biến chữ latin, phép -, +
-        # Strip the "Z = ", "f(x) =" prefix from objective expression
-        objective_expr = re.sub(r"^[a-zA-Z0-9\s_\(\)]+\s*=\s*", "", objective_part, flags=re.IGNORECASE).strip()
+        # Strip the "Z = ", "f(x) =", "chi phí:" prefix from objective expression
+        objective_expr = re.sub(r"^[a-zA-ZÀ-ỹ0-9\s_\(\)]+\s*[=:]\s*", "", objective_part, flags=re.IGNORECASE).strip()
+        # If strip removed everything (no = or : found), use objective_part itself
+        if not objective_expr:
+            objective_expr = objective_part.strip()
         
         # CRITICAL FIX: Remove trailing Vietnamese/English words that are NOT math terms
         # e.g. "3x1 + 5x2 với ràng buộc" → strip "với ràng buộc"
-        # Strategy: cut at first Vietnamese word (≥2 letters not preceded by a digit or operator)
-        # Keep only valid math expression characters: digits, letters of variables, +, -, ., *
         objective_expr = re.sub(r'\s+(với|subject|điều kiện|where|when|st|s\.t).*$', '', objective_expr, flags=re.IGNORECASE).strip()
         
         # Remove non-math trailing garbage: everything after the last valid math char sequence
         objective_expr = re.sub(r'[^a-zA-Z0-9\s\+\-\*\.].*$', '', objective_expr).strip()
         
+
         obj_coeffs_map, obj_vars = parse_expression_to_coeffs_map(objective_expr)
         if not obj_coeffs_map:
             logs.append(f"Error: Could not parse objective expression: '{objective_expr}'")
@@ -171,6 +177,17 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
 
         # --- Constraint Parsing (Improved Logic) ---
         if constraints_part:
+            # 0. Pre-strip: remove trailing solver/method phrases that are NOT constraints
+            #    e.g. "bằng phương pháp 2 pha", "using simplex", "by two-phase method"
+            method_strip_pattern = re.compile(
+                r'[;,.\s]*(b\u1eb1ng|using|by|v\u1edbi|d\u00f9ng|s\u1eed\s+d\u1ee5ng)\s+'
+                r'(ph\u01b0\u01a1ng\s+ph\u00e1p\s+)?'
+                r'(2\s*pha|hai\s+pha|\u0111\u01a1n\s+h\u00ecnh|simplex|bland|auxiliary|'
+                r'pulp|h\u00ecnh\s+h\u1ecdc|geometric|\u0111\u1ed1i\s+ng\u1eabu|dual)[^;]*$',
+                re.IGNORECASE
+            )
+            constraints_part = method_strip_pattern.sub('', constraints_part).strip()
+
             # 1. Expand compact non-negativity constraints first
             constraints_part = _expand_non_negativity_constraints(constraints_part)
             
@@ -179,12 +196,21 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
             
             parsed_constraints = []
             for i, line in enumerate(constraint_lines):
+                # Strip leading bullet dash (e.g. "- x + y <= 10" → "x + y <= 10")
+                line = re.sub(r'^[-•]\s+', '', line).strip()
+                if not line:
+                    continue
                 # Use the single-line constraint pattern from rule_templates
                 constr_match = rule_templates.LP_PATTERNS["single_constraint_line"].match(line)
                 
                 if not constr_match:
+                    # If the line contains no comparison operator, it's likely trailing text
+                    # (e.g. "bằng phương pháp 2 pha") — skip silently instead of aborting.
+                    has_operator = re.search(r'<=|>=|==|<|>|≤|≥', line)
+                    if not has_operator:
+                        logs.append(f"Warning: Skipping non-constraint line '{line}' (no comparison operator found).")
+                        continue
                     logs.append(f"Error: Could not parse constraint line '{line}'. Aborting parsing of the entire problem.")
-                    # **CRITICAL CHANGE**: If any line fails, the whole parsing fails. This makes it stricter.
                     return None, logs
                 
                 lhs_str, op, rhs_str = constr_match.group(1).strip(), constr_match.group(2), constr_match.group(3)

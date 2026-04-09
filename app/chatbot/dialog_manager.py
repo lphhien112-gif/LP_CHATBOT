@@ -84,15 +84,58 @@ class DialogManager:
             self._log(f"Lỗi khi chuyển đổi định dạng cho solver: {e}")
             return None
 
+    def _detect_solver(self, text: str, default: str = "simple_dictionary") -> str:
+        """Centralized solver detection from Vietnamese/English text.
+        
+        Available solvers:
+          simple_dictionary  — Simplex cơ bản (đơn hình từ điển)
+          simplex_bland     — Simplex quy tắc Bland
+          auxiliary          — 2-pha (bài toán phụ trợ)
+          dual_simplex       — Đối ngẫu Simplex
+          dual_primal_two_phase — Đối ngẫu – Nguyên thủy 2 pha
+          geometric          — Hình học (vẽ đồ thị)
+          pulp_cbc           — PuLP CBC (chỉ kết quả cuối)
+        """
+        m = text.lower()
+        # ── Order matters: check specific patterns BEFORE generic ones ──
+        
+        # 1. Dual-Primal Two Phase (most specific dual variant)
+        if ("nguyên thủy" in m or "primal" in m or
+            ("đối ngẫu" in m and ("2 pha" in m or "hai pha" in m or "two" in m))):
+            return "dual_primal_two_phase"
+        
+        # 2. Dual Simplex
+        if "đối ngẫu" in m or "dual" in m:
+            return "dual_simplex"
+        
+        # 3. Two-phase / Auxiliary
+        if ("2 pha" in m or "hai pha" in m or "2pha" in m or
+            "two phase" in m or "two-phase" in m or
+            "phụ trợ" in m or "auxiliary" in m or "bổ trợ" in m):
+            return "auxiliary"
+        
+        # 4. Bland
+        if "bland" in m:
+            return "simplex_bland"
+        
+        # 5. Geometric
+        if ("hình học" in m or "hình" in m or "geo" in m or
+            "vẽ" in m or "đồ thị" in m or "đồ_thị" in m):
+            return "geometric"
+        
+        # 6. Simplex (basic) — must come AFTER bland/dual checks
+        if "đơn hình" in m or "simplex" in m or "simple" in m:
+            return "simple_dictionary"
+        
+        # 7. PuLP
+        if "pulp" in m or "cbc" in m:
+            return "pulp_cbc"
+        
+        return default
+
     def _map_solver_name(self, user_input: str) -> str:
-        """Chuẩn hóa tên solver từ input của người dùng."""
-        user_input = user_input.lower()
-        if "hìn" in user_input or "geo" in user_input: return "geometric"
-        if "bland" in user_input: return "simplex_bland"
-        if "đơn hình" in user_input or "simple" in user_input: return "simple_dictionary"
-        if "pulp" in user_input: return "pulp_cbc"
-        if "aux" in user_input: return "auxiliary"
-        return "pulp_cbc"
+        """Alias for backward compatibility."""
+        return self._detect_solver(user_input)
 
     def _extract_log_chunk_for_step(self, step_number: int) -> Optional[str]:
         """Trích xuất khối log cho một iteration cụ thể."""
@@ -145,31 +188,23 @@ class DialogManager:
             "suggestions": [f"Giải thích bước {step_number + 1}", "Trở về bài toán"]
         })}
 
-    async def _handle_intent_request_specific_solver(self, entities: Dict):
-        """Xử lý yêu cầu giải lại bài toán với một solver cụ thể."""
+    async def _handle_intent_request_specific_solver(self, entities: Dict, original_message: str = ""):
+        """Xử lý yêu cầu giải bài toán với một solver cụ thể — giải ngay, không hỏi confirm."""
         if not self._is_problem_defined():
-            yield {"type": "complete", "result": self._finalize_response({"text_response": "Mình chưa có bài toán nào để giải lại. Bạn vui lòng cung cấp một bài toán trước nhé."})}
+            yield {"type": "complete", "result": self._finalize_response({
+                "text_response": "Mình chưa có bài toán nào để giải. Bạn vui lòng cung cấp bài toán trước nhé.",
+                "suggestions": ["Giải bài toán mẫu"]
+            })}
             return
 
+        # Lấy tên solver từ entity; nếu rỗng thì fallback vào toàn bộ message gốc
         solver_name_entity = entities.get("solver_name", "")
-        solver_to_use = self._map_solver_name(solver_name_entity)
-        self._log(f"Chuẩn bị giải lại bằng solver: '{solver_to_use}'")
-        
-        # Đặt hành động chờ xác nhận
-        self.state["pending_action"] = {"action": "solve", "solver": solver_to_use}
-        self.state["expectation"] = "awaiting_confirmation"
+        solver_to_use = self._map_solver_name(solver_name_entity or original_message)
+        self._log(f"Giải ngay với solver: '{solver_to_use}' (entity='{solver_name_entity}')")
 
-        # Tạo câu hỏi xác nhận thân thiện
-        problem_def = self.state['current_problem_definition']
-        obj_expr = self._format_coeffs_map_for_display(problem_def.get('objective_coeffs_map', {}))
-        
-        confirmation_text = f"Được chứ! Bạn muốn mình giải lại bài toán hiện tại (<b>{obj_expr}</b>) bằng phương pháp <b>{solver_to_use}</b> phải không?"
-        
-        yield {"type": "complete", "result": self._finalize_response({
-            "text_response": confirmation_text,
-            "allow_html": True,
-            "suggestions": ["Đúng vậy", "Thôi, để sau"]
-        })}
+        async for event in self._solve_current_problem(solver_to_use):
+            yield event
+
 
     async def _handle_list_sample_problems(self):
         """Liệt kê các bài toán mẫu cho người dùng chọn."""
@@ -249,56 +284,68 @@ class DialogManager:
         response_parts = []
         if preamble: response_parts.append(f"<p>{preamble}</p>")
         response_parts.append(self._format_problem_summary(internal_def))
-        # Phát tín hiệu render HTML summary lên UI liền ngay lập tức (như dạng chunk)
-        summary_html = "".join(response_parts) + "<br><div class='markdown-body'>"
+        summary_html = "".join(response_parts) + "\n\n"
+        # Stream summary as HTML chunk
         yield {"type": "chunk", "content": summary_html}
         
-        # Inject mảng step_by_step_md (bảng Simplex Tableaus) vào UI
+        # Inject step-by-step tableaus (LaTeX \[...\] blocks + markdown conclusion)
         step_by_step_md = solution.get("step_by_step_md", []) if solution else []
-        tableaus_html = ""
+        tableaus_md = ""
         if step_by_step_md:
             tableaus_md = "\n\n".join(step_by_step_md)
             self._log(f"Đã có {len(step_by_step_md)} bước Tableaus để hiển thị.")
-            # Yield trực tiếp block raw markdown (frontend có marked.js sẽ render sau)
-            yield {"type": "chunk_escaped", "content": tableaus_md + "\n\n---\n**Tóm tắt chung:**\n\n"}
-            tableaus_html = tableaus_md + "\n\n---\n**Tóm tắt chung:**\n\n"
+            # Stream tableaus as raw markdown/LaTeX (will be rendered on complete)
+            yield {"type": "chunk_escaped", "content": tableaus_md + "\n\n---\n\n"}
         
         # Streaming LLM Explanation
-        llm_formatted_text = ""
+        llm_text = ""
         async for chunk in self.openai_client.format_solver_solution_stream(internal_def, solution):
-            llm_formatted_text += chunk
+            llm_text += chunk
             yield {"type": "chunk_escaped", "content": chunk}
-            
-        yield {"type": "chunk", "content": "</div>"}
         
-        # Fallback: Trả về kết quả thô kèm html tĩnh nếu LLM lỗi mạng
-        if not llm_formatted_text:
+        # Fallback if LLM failed
+        if not llm_text:
              self._log("Fallback do gọi API LLM bị lỗi")
              fallback_html = self._format_solution_response(solution, solver_format, solver_name)
              yield {"type": "chunk", "content": fallback_html}
-             llm_formatted_text = fallback_html
+             llm_text = fallback_html
         
-        # Chèn biểu đồ ảnh nếu có
+        # Image (if geometric solver)
         image_html = ""
         if solution and solution.get("plot_image_base64"):
              img_src = solution["plot_image_base64"]
-             image_html = f"<br><br><div style='text-align: center;'><img src='{img_src}' alt='Biểu đồ giải bằng hình học' style='max-width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);' /></div>"
+             image_html = f"\n\n<div style='text-align: center;'><img src='{img_src}' alt='Biểu đồ' style='max-width: 100%; border-radius: 8px;' /></div>"
         
-        # Tạo gợi ý
-        suggestions = ["Bắt đầu bài toán mới"]
+        # Suggestions — show ALL other solvers the user can switch to
+        SOLVER_SUGGESTIONS = {
+            "simple_dictionary": "Giải bằng đơn hình",
+            "simplex_bland": "Dùng Bland",
+            "auxiliary": "Giải bằng 2 pha",
+            "dual_simplex": "Giải đối ngẫu",
+            "dual_primal_two_phase": "Đối ngẫu-nguyên thủy",
+            "geometric": "Giải bằng hình học",
+        }
+        suggestions = []
         if solution and solution.get("status") == "Optimal":
             if solver_name not in ["geometric"]:
-                 suggestions.insert(0, "Giải thích bước 1")
-            if len(solver_format.get("variables_names_for_title_only", [])) == 2 and solver_name != "geometric":
-                 suggestions.insert(0, "Giải bằng hình học")
-            elif len(solver_format.get("variables_names_for_title_only", [])) > 2 and solver_name != "simple_dictionary":
-                 suggestions.insert(0, "Giải bằng đơn hình")
+                suggestions.append("Giải thích bước 1")
+            for s_key, s_label in SOLVER_SUGGESTIONS.items():
+                if s_key == solver_name:
+                    continue
+                # Geometric only for 2-variable problems
+                if s_key == "geometric" and len(solver_format.get("variables_names_for_title_only", [])) != 2:
+                    continue
+                suggestions.append(s_label)
+        suggestions.append("Bắt đầu bài toán mới")
 
-        # LLM stream đã được parse HTML khi allow_html = True (thông qua marked.js ở Frontend)
-        final_text_content = summary_html + tableaus_html + llm_formatted_text + "</div>" + image_html
+        # Final assembled content: summary (HTML) + tableaus (LaTeX/MD) + LLM (MD) + image
+        final_text = summary_html + tableaus_md
+        if tableaus_md:
+            final_text += "\n\n---\n\n"
+        final_text += llm_text + image_html
 
         yield {"type": "complete", "result": self._finalize_response({
-            "text_response": final_text_content,
+            "text_response": final_text,
             "problem_context": context,
             "allow_html": True,
             "suggestions": suggestions
@@ -353,32 +400,95 @@ class DialogManager:
              # Xử lý câu chuyện... (Logic này có thể được thêm vào sau)
              pass
 
-        # Ưu tiên 3: Thử parse như một bài toán đầy đủ
-        parsed_lp, parse_logs = self.lp_formula_parser(user_message)
-        print(f"DEBUG: Parsed LP result: {parsed_lp}")
-        print(f"DEBUG: is_problem_defined: {self._is_problem_defined(parsed_lp)}")
-        
-        if parsed_lp and self._is_problem_defined(parsed_lp):
-            self._log(f"Đã phân tích thành công bài toán từ chuỗi. Logs: {parse_logs}")
-            self.state["current_problem_definition"] = parsed_lp
+        # Ưu tiên 2b: SHORTCUT cho yêu cầu giải bằng solver cụ thể khi đã có bài toán
+        # Bắt sớm trước lp_parser để tránh rơi vào pipeline parse → LLM → NLP intent
+        _SOLVER_REQUEST_RE = re.compile(
+            r"(giải\s*(bằng|lại\s*bằng|cho\s*tôi\s*bằng|theo)?\s*"
+            r"|dùng\s*|sử\s*dụng\s*|thử\s*|chuyển\s*(sang)?\s*"
+            r"|vẽ\s*(hình|đồ\s*thị)?\s*"
+            r"|phương\s*pháp\s*)"
+            r"(đơn\s*hình|simplex|bland|2\s*pha|hai\s*pha|two.?phase|đối\s*ngẫu|dual"
+            r"|nguyên\s*thủy|primal|hình\s*học|geo|phụ\s*trợ|auxiliary|bổ\s*trợ|pulp|cbc)",
+            re.IGNORECASE
+        )
+        if _SOLVER_REQUEST_RE.search(user_message) and self._is_problem_defined():
+            detected = self._detect_solver(user_message, default=None)
+            if detected:
+                self._log(f"Shortcut: solver '{detected}' từ '{user_message}'")
+                async for event in self._solve_current_problem(detected):
+                    yield event
+                return
+
+        _LP_KEYWORDS = re.compile(
+            r"(maximiz|minimiz|tối đa|tối thiểu|maximize|minimize|subject to|ràng buộc|lợi nhuận|chi phí|lợi suất|hàm mục tiêu)",
+            re.IGNORECASE
+        )
+
+        # Ưu tiên 3: Phân tích bài toán LP
+        # Chiến lược: tin nhắn NGẮN (<120 ký tự) → lp_parser trước (giỏi parse math notation)
+        #             tin nhắn DÀI (≥120 ký tự, story) → LLM extraction trước (tránh parse sai biến)
+        is_story_like = len(user_message) >= 120 and _LP_KEYWORDS.search(user_message)
+
+        if is_story_like and self.openai_client.client:
+            # ── PATH A: Story/câu chuyện → LLM extraction trước ──
+            self._log(f"Tin nhắn dài ({len(user_message)} chars) + LP keywords → dùng LLM extraction trước")
+            yield {"type": "chunk", "content": "<p><i>🔍 Đang nhận diện bài toán từ mô tả tự nhiên...</i></p>"}
             
-            # Kiểm tra xem người dùng có yêu cầu solver cụ thể ngay trong cùng tin nhắn không
-            solver_to_use = "pulp_cbc" # Mặc định
-            msg_lower = user_message.lower()
+            structured_text = await self.openai_client.extract_lp_as_structured(user_message)
+            if structured_text:
+                self._log(f"LLM returned structured LP:\n{structured_text}")
+                parsed_lp, logs = self.lp_formula_parser(structured_text)
+                if parsed_lp and self._is_problem_defined(parsed_lp):
+                    self._log("LLM extraction → lp_parser: THÀNH CÔNG!")
+                    self.state["current_problem_definition"] = parsed_lp
+                    solver_to_use = self._detect_solver(user_message)
+                    self._log(f"Story solver: '{solver_to_use}'")
+                    async for event in self._solve_current_problem(solver_to_use):
+                        yield event
+                    return
+                else:
+                    self._log(f"LLM extraction → lp_parser thất bại. Logs: {logs}")
             
-            nlp_result = self.rule_based_nlp.parse_intent_and_entities(user_message)
-            if nlp_result.get("intent") == "request_specific_solver":
-                solver_to_use = self._map_solver_name(nlp_result.get("entities", {}).get("solver_name", ""))
-            else:
-                # Fallback nhanh nếu NLP parser bị trượt
-                if "đối ngẫu" in msg_lower: solver_to_use = "dual_simplex"
-                elif "hai pha" in msg_lower or "2 pha" in msg_lower: solver_to_use = "auxiliary"
-                elif "đơn hình" in msg_lower or "simplex" in msg_lower: solver_to_use = "simple_dictionary"
-                elif "đồ thị" in msg_lower or "hình học" in msg_lower: solver_to_use = "geometric"
+            # Fallback: thử lp_parser trực tiếp (có thể story chứa math notation rõ ràng)
+            parsed_lp, parse_logs = self.lp_formula_parser(user_message)
+            if parsed_lp and self._is_problem_defined(parsed_lp):
+                # Validate: bài toán phải có ít nhất 1 constraint thực sự
+                constraints = parsed_lp.get("constraints", [])
+                non_trivial = [c for c in constraints if c.get("rhs", 0) != 0 or any(abs(v) > 0 for v in c.get("coeffs_map", {}).values())]
+                if len(non_trivial) >= 1:
+                    self.state["current_problem_definition"] = parsed_lp
+                    solver_to_use = self._detect_solver(user_message)
+                    async for event in self._solve_current_problem(solver_to_use):
+                        yield event
+                    return
+                else:
+                    self._log("lp_parser returned trivial constraints — rejected")
+        else:
+            # ── PATH B: Tin nhắn ngắn (math notation) → lp_parser trước ──
+            parsed_lp, parse_logs = self.lp_formula_parser(user_message)
+            self._log(f"lp_parser result: {'OK' if parsed_lp else 'None'}, logs: {parse_logs}")
             
-            async for event in self._solve_current_problem(solver_to_use):
-                yield event
-            return
+            if parsed_lp and self._is_problem_defined(parsed_lp):
+                self._log(f"Đã phân tích thành công bài toán. Logs: {parse_logs}")
+                self.state["current_problem_definition"] = parsed_lp
+                solver_to_use = self._detect_solver(user_message)
+                async for event in self._solve_current_problem(solver_to_use):
+                    yield event
+                return
+
+            # Fallback: tin nhắn ngắn nhưng lp_parser thất bại → thử LLM
+            if _LP_KEYWORDS.search(user_message) and self.openai_client.client:
+                self._log("lp_parser thất bại trên tin nhắn ngắn. Thử LLM extraction...")
+                yield {"type": "chunk", "content": "<p><i>🔍 Đang nhận diện bài toán...</i></p>"}
+                structured_text = await self.openai_client.extract_lp_as_structured(user_message)
+                if structured_text:
+                    parsed_lp2, logs2 = self.lp_formula_parser(structured_text)
+                    if parsed_lp2 and self._is_problem_defined(parsed_lp2):
+                        self.state["current_problem_definition"] = parsed_lp2
+                        solver_to_use = self._detect_solver(user_message)
+                        async for event in self._solve_current_problem(solver_to_use):
+                            yield event
+                        return
 
         # Ưu tiên 4: Phân tích ý định từ câu nói
         nlp_result = self.rule_based_nlp.parse_intent_and_entities(user_message)
@@ -391,7 +501,7 @@ class DialogManager:
             return
         
         if intent == "request_specific_solver":
-            async for event in self._handle_intent_request_specific_solver(entities):
+            async for event in self._handle_intent_request_specific_solver(entities, user_message):
                 yield event
             return
 

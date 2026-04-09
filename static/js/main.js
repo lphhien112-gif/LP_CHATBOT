@@ -1,117 +1,192 @@
-// /static/js/main.js
-
 /**
- * Hàm chính xử lý logic của ứng dụng chat sau khi DOM được tải.
+ * main.js — App Entry Point
+ * Binds events, manages app state, orchestrates api.js + ui.js.
+ * Imported as type="module" from index.html.
  */
-function main() {
-    console.log("Hàm main() đang được thực thi. main.js đang hoạt động.");
+import { sendChatMessage } from './api.js';
+import {
+    renderMarkdown, renderKatex,
+    appendUserMessage, appendBotMessage, appendTypingIndicator,
+    appendErrorMessage, showWelcomeState, displaySuggestions,
+    setStatusBadge, validateInput, escapeHtml,
+} from './ui.js';
 
-    const chatForm = document.getElementById('chat-form'); // Giả sử có form với ID 'chat-form'
-    const messageInput = document.getElementById('message-input'); // Giả sử có input với ID 'message-input'
-    const chatMessagesContainer = document.getElementById('chat-messages'); // Giả sử có div với ID 'chat-messages'
+// ── DOM References ────────────────────────────────────────────────────────────
+const messagesInner = document.getElementById('messages-inner');
+const chatMessages  = document.getElementById('chat-messages');
+const chatForm      = document.getElementById('chat-form');
+const messageInput  = document.getElementById('message-input');
+const suggestionArea= document.getElementById('suggestion-area');
+const sendButton    = document.getElementById('send-button');
+const statusBadge   = document.getElementById('status-badge');
+const charCounter   = document.getElementById('char-counter');
 
-    if (chatForm && messageInput && chatMessagesContainer) {
-        chatForm.addEventListener('submit', async function (event) {
-            event.preventDefault(); // Ngăn form submit theo cách truyền thống
+// ── App State ─────────────────────────────────────────────────────────────────
+let lastProblemContext = null;
+let isWaiting = false;
 
-            const userMessageText = messageInput.value.trim();
-            if (!userMessageText) {
-                return; // Không gửi nếu tin nhắn trống
-            }
+// ── Input Handling ────────────────────────────────────────────────────────────
+messageInput.addEventListener('input', () => {
+    // Auto-grow textarea
+    messageInput.style.height = 'auto';
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 160) + 'px';
 
-            // Hiển thị tin nhắn của người dùng
-            appendMessageToChat(userMessageText, 'user', chatMessagesContainer);
-            messageInput.value = ''; // Xóa input sau khi gửi
+    const len = messageInput.value.trim().length;
+    sendButton.disabled = len === 0 || isWaiting;
 
-            // Hiển thị chỉ báo "Bot đang soạn..." (tùy chọn)
-            const typingIndicator = appendMessageToChat('Bot đang soạn...', 'bot', chatMessagesContainer, true);
-
-            try {
-                // Tạo FormData để gửi dữ liệu
-                const formData = new FormData();
-                formData.append('message', userMessageText);
-
-                // Gửi yêu cầu POST đến endpoint của chatbot
-                // URL này cần được cấu hình đúng dựa trên router của bạn
-                const response = await fetch('/send_message', { // HOẶC /chatbotui/send_message tùy cấu hình
-                    method: 'POST',
-                    body: formData
-                });
-
-                // Xóa chỉ báo "Bot đang soạn..."
-                if (typingIndicator && typingIndicator.parentNode) {
-                    typingIndicator.parentNode.removeChild(typingIndicator);
-                }
-
-                if (!response.ok) {
-                    // Xử lý lỗi từ server
-                    let errorMsg = `Lỗi từ server: ${response.status} ${response.statusText}`;
-                    try {
-                        const errorData = await response.json();
-                        errorMsg = errorData.detail || errorData.message || errorMsg;
-                    } catch (e) {
-                        // Không thể parse JSON, dùng thông báo mặc định
-                    }
-                    appendMessageToChat(errorMsg, 'bot', chatMessagesContainer);
-                    console.error('Error sending message:', errorMsg);
-                    return;
-                }
-
-                const data = await response.json();
-                // Hiển thị phản hồi của bot
-                appendMessageToChat(data.bot_response, 'bot', chatMessagesContainer);
-
-            } catch (error) {
-                // Xử lý lỗi mạng hoặc lỗi khác
-                if (typingIndicator && typingIndicator.parentNode) {
-                    typingIndicator.parentNode.removeChild(typingIndicator);
-                }
-                appendMessageToChat('Lỗi kết nối tới server. Vui lòng thử lại.', 'bot', chatMessagesContainer);
-                console.error('Network or other error:', error);
-            }
-        });
-    } else {
-        console.warn("Một số phần tử chat (form, input, messages container) không được tìm thấy. Chat JS sẽ không hoạt động đầy đủ.");
+    // Character counter visual feedback
+    if (charCounter) {
+        charCounter.textContent = len > 0 ? `${len}/5000` : '';
+        charCounter.classList.toggle('counter-warn', len > 4500);
     }
-}
-
-// Hàm này được gọi khi trang HTML được tải hoàn toàn
-document.addEventListener('DOMContentLoaded', function () {
-    console.log("Trang đã được tải hoàn toàn. Gọi hàm main().");
-    main(); // Gọi hàm chính để khởi chạy logic ứng dụng
 });
 
+// Enter sends, Shift+Enter inserts newline
+messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendButton.disabled && !isWaiting) {
+            chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+    }
+});
+
+// ── Form Submit ───────────────────────────────────────────────────────────────
+chatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const rawText = messageInput.value;
+    const { valid, error } = validateInput(rawText);
+    if (!valid) {
+        showInputError(error);
+        return;
+    }
+    const text = rawText.trim();
+    suggestionArea.innerHTML = '';
+    messageInput.value = '';
+    messageInput.style.height = 'auto';
+    sendButton.disabled = true;
+    if (charCounter) charCounter.textContent = '';
+    _handleSend(text);
+});
+
+// ── Core Message Flow ─────────────────────────────────────────────────────────
+
 /**
- * Hàm tiện ích để thêm tin nhắn vào giao diện chat.
- * @param {string} text Nội dung tin nhắn.
- * @param {string} sender Người gửi ('user' hoặc 'bot').
- * @param {HTMLElement} container Phần tử DOM chứa các tin nhắn.
- * @param {boolean} isTyping Nếu là true, trả về phần tử DOM của tin nhắn (cho chỉ báo "đang soạn").
- * @returns {HTMLElement|null} Phần tử DOM của tin nhắn nếu isTyping là true, ngược lại là null.
+ * Streaming strategy:
+ *
+ * During streaming, we accumulate chunks and show a LIVE PREVIEW.
+ * When the 'complete' event fires, we REPLACE the preview with the
+ * fully-rendered final content (renderMarkdown + renderKatex).
+ *
+ * This ensures LaTeX \[...\] blocks (which can be split across chunks)
+ * are always rendered correctly in one pass at the end.
  */
-function appendMessageToChat(text, sender, container, isTyping = false) {
-    if (!container) return null;
+async function _handleSend(text) {
+    if (isWaiting) return;
+    isWaiting = true;
+    setStatusBadge(statusBadge, 'waiting');
 
-    const messageDiv = document.createElement('div');
-    messageDiv.classList.add('message'); // Sử dụng class 'message' từ style.css
+    appendUserMessage(messagesInner, text);
+    const typingEl = appendTypingIndicator(messagesInner);
 
-    if (sender === 'user') {
-        messageDiv.classList.add('user-message'); // Sử dụng class 'user-message'
-    } else {
-        messageDiv.classList.add('bot-message'); // Sử dụng class 'bot-message'
+    let botMsg = null;   // { wrapper, textEl, finalise }
+    // We track two separate accumulators:
+    // - rawChunks: raw content for streaming preview
+    // - seenComplete: whether onComplete has fired
+    let rawChunks = '';
+    let seenComplete = false;
+
+    await sendChatMessage(text, lastProblemContext, {
+        onChunk(content, isMarkdown) {
+            if (typingEl.parentNode) typingEl.remove();
+            if (!botMsg) botMsg = appendBotMessage(messagesInner, '', true);
+
+            rawChunks += content;
+
+            // Live preview: for markdown chunks, show as monospace preview.
+            // For HTML chunks, inject directly (they contain problem summary etc.)
+            if (isMarkdown) {
+                // Replace entire textEl with a preview showing the accumulated raw text
+                botMsg.textEl.innerHTML = `<div class="streaming-preview">${escapeHtml(rawChunks)}</div>`;
+            } else {
+                // HTML chunk — inject directly for immediate display
+                botMsg.textEl.innerHTML = rawChunks;
+            }
+            botMsg.textEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        },
+
+        onComplete({ textResponse, allowHtml, suggestions, problemContext }) {
+            seenComplete = true;
+            if (typingEl.parentNode) typingEl.remove();
+            if (!botMsg) botMsg = appendBotMessage(messagesInner, '', false);
+
+            // FINAL RENDER: Parse markdown (preserving LaTeX) → inject → KaTeX render
+            // renderMarkdown protects \[...\] and $..$ via placeholders before marked.js,
+            // so HTML + LaTeX + Markdown all work correctly in one pass.
+            const finalHtml = renderMarkdown(textResponse);
+            botMsg.textEl.innerHTML = finalHtml;
+            renderKatex(botMsg.textEl);
+            botMsg.finalise();  // add copy button
+
+            // Update context for follow-up questions
+            if (problemContext) lastProblemContext = problemContext;
+            else if (text.toLowerCase().includes('bài toán mới')) lastProblemContext = null;
+
+            if (suggestions && suggestions.length) {
+                displaySuggestions(suggestionArea, suggestions, _sendSuggestion);
+            }
+
+            botMsg.textEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        },
+
+        onError(err) {
+            if (typingEl.parentNode) typingEl.remove();
+            appendErrorMessage(messagesInner, err.message);
+            setStatusBadge(statusBadge, 'error');
+        },
+    });
+
+    // Safety: if stream ended without a 'complete' event, render what we have
+    if (!seenComplete && rawChunks && botMsg) {
+        const finalHtml = renderMarkdown(rawChunks);
+        botMsg.textEl.innerHTML = finalHtml;
+        renderKatex(botMsg.textEl);
+        botMsg.finalise();
     }
 
-    messageDiv.textContent = text;
-    container.appendChild(messageDiv);
-
-    // Tự động cuộn xuống tin nhắn mới nhất
-    container.scrollTop = container.scrollHeight;
-
-    return isTyping ? messageDiv : null;
+    isWaiting = false;
+    setStatusBadge(statusBadge, 'ready');
+    sendButton.disabled = messageInput.value.trim() === '';
+    messageInput.focus();
 }
 
-// Bạn có thể thêm các hàm JavaScript khác ở đây cho các tương tác khác trên trang web.
-// Ví dụ:
-// function toggleTheme() {
-//     document.body.classList.toggle('dark-theme');
-// }
+// ── Suggestion Pills ──────────────────────────────────────────────────────────
+function _sendSuggestion(text) {
+    const cleanText = text.replace(/✨/g, '').trim();
+    suggestionArea.innerHTML = '';
+    messageInput.value = '';
+    _handleSend(cleanText);
+}
+
+// ── Input Validation Error ────────────────────────────────────────────────────
+function showInputError(msg) {
+    const hint = document.getElementById('input-hint');
+    if (!hint) return;
+    hint.textContent = msg;
+    hint.classList.add('hint-error');
+    setTimeout(() => {
+        hint.textContent = 'Nhấn Enter để gửi · Shift+Enter để xuống dòng';
+        hint.classList.remove('hint-error');
+    }, 3000);
+}
+
+// ── Initialise ────────────────────────────────────────────────────────────────
+function init() {
+    // Diagnostics: ensure CDN libs loaded
+    if (!window.marked) console.warn('[LP Chatbot] marked.js not loaded — markdown will NOT render');
+    if (!window.renderMathInElement) console.warn('[LP Chatbot] KaTeX auto-render not loaded — math will NOT render');
+    showWelcomeState(messagesInner, suggestionArea, _sendSuggestion);
+    messageInput.focus();
+}
+
+init();
