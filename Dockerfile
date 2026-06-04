@@ -1,5 +1,20 @@
 # =====================================================
-# Stage 1: Builder - Cài dependencies nặng
+# Stage 1: Frontend builder — build React SPA bằng Node
+# =====================================================
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /build/frontend
+
+# Cài deps trước (tận dụng cache layer khi chỉ đổi source)
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+# Build: vite base='/app/' xuất ra ../static/app => /build/static/app
+COPY frontend/ ./
+RUN npm run build
+
+# =====================================================
+# Stage 2: Python builder — cài dependencies nặng
 # =====================================================
 FROM python:3.12-slim AS builder
 
@@ -21,7 +36,7 @@ RUN pip install --upgrade pip \
     && pip install --prefix=/install -r requirements.txt
 
 # =====================================================
-# Stage 2: Runtime - Image nhỏ gọn cho production
+# Stage 3: Runtime — image nhỏ gọn cho production
 # =====================================================
 FROM python:3.12-slim AS runtime
 
@@ -29,18 +44,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1
 
-# Chỉ cài CBC runtime (không cần compiler nữa)
+# Chỉ cài CBC runtime + curl (cho healthcheck)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends coinor-cbc \
+    && apt-get install -y --no-install-recommends coinor-cbc curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy các packages đã build từ builder stage
+# Copy các packages Python đã build
 COPY --from=builder /install /usr/local
 
-# Copy toàn bộ source code
+# Copy source code backend
 COPY . .
+
+# Copy SPA React đã build (từ stage 1) — ghi đè static/app
+COPY --from=frontend-builder /build/static/app ./static/app
 
 EXPOSE 8000
 

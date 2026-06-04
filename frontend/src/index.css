@@ -1,0 +1,114 @@
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply font-sans antialiased;
+}
+
+/* ── Scrollbar mảnh, hiện đại ─────────────────────────────────────────────── */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: theme('colors.brand.400 / 40%') transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-brand-400/30 hover:bg-brand-400/50;
+}
+
+/* ── Nội dung markdown trong bong bóng chat ───────────────────────────────── */
+.prose-chat {
+  @apply text-[15px] leading-relaxed;
+}
+.prose-chat p {
+  @apply my-2;
+}
+.prose-chat p:first-child {
+  @apply mt-0;
+}
+.prose-chat p:last-child {
+  @apply mb-0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  @apply mb-2 mt-4 font-semibold text-slate-900 dark:text-white;
+}
+.prose-chat h1 { @apply text-lg; }
+.prose-chat h2 { @apply text-base; }
+.prose-chat h3 { @apply text-sm uppercase tracking-wide text-brand-600 dark:text-brand-300; }
+.prose-chat ul,
+.prose-chat ol {
+  @apply my-2 ml-5 space-y-1;
+}
+.prose-chat ul { @apply list-disc; }
+.prose-chat ol { @apply list-decimal; }
+.prose-chat a {
+  @apply text-brand-600 underline decoration-brand-400/50 underline-offset-2 hover:text-brand-500 dark:text-brand-300;
+}
+.prose-chat strong {
+  @apply font-semibold text-slate-900 dark:text-white;
+}
+.prose-chat code {
+  @apply rounded bg-slate-200/70 px-1.5 py-0.5 font-mono text-[13px] text-brand-700 dark:bg-slate-700/60 dark:text-brand-200;
+}
+.prose-chat pre {
+  @apply my-3 overflow-x-auto rounded-xl bg-slate-900 p-4 text-[13px] leading-relaxed text-slate-100 dark:bg-black/40;
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0 text-slate-100;
+}
+.prose-chat hr {
+  @apply my-4 border-slate-200/70 dark:border-slate-700/60;
+}
+.prose-chat table {
+  @apply my-3 w-full border-collapse overflow-hidden rounded-lg text-sm;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border border-slate-200 px-3 py-1.5 text-center dark:border-slate-700;
+}
+.prose-chat th {
+  @apply bg-brand-50 font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-200;
+}
+.prose-chat img {
+  @apply my-3 max-w-full rounded-xl border border-slate-200 shadow-sm dark:border-slate-700;
+}
+.prose-chat blockquote {
+  @apply my-3 border-l-4 border-brand-300 pl-4 italic text-slate-600 dark:text-slate-300;
+}
+
+/* KaTeX — công thức rõ ràng trong khung chat */
+.prose-chat .katex {
+  font-size: 1.08em;
+}
+/* Khối hiển thị (từ vựng/tableau): căn TRÁI + to hơn để tận dụng bề ngang,
+   không bị dồn nhỏ ở giữa. */
+.prose-chat .katex-display {
+  @apply my-3 overflow-x-auto overflow-y-hidden py-1;
+  text-align: left;
+}
+.prose-chat .katex-display > .katex {
+  font-size: 1.2em;
+  text-align: left;
+  padding-left: 0.25rem;
+}
+
+/* Preview thô khi đang stream (monospace) */
+.streaming-preview {
+  @apply whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-slate-500 dark:text-slate-400;
+}

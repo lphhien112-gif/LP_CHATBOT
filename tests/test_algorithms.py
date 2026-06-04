@@ -72,10 +72,10 @@ def problem_min_basic() -> Dict[str, Any]:
 def problem_negative_rhs() -> Dict[str, Any]:
     """
     Bài cần Phase 1 (có b_i < 0 sau chuẩn hóa).
-    Min -x1 - x2
+    Min -x1 - x2   (≡ Max x1 + x2)
     s.t. x1 + x2 >= 2 (→ -x1 - x2 <= -2, b=-2 < 0)
          x1 + 2x2 <= 6
-    Optimal: x1=2, x2=0 hoặc tương đương, Z=-2
+    Optimal: x1=6, x2=0, Z=-6 (verified với PuLP)
     """
     return {
         "objective": "minimize",
@@ -242,11 +242,9 @@ class TestSimplexDantzig:
         assert_optimal(solution, 36.0, {"x1": 2.0, "x2": 6.0})
 
     def test_minimize_with_geq(self, problem_min_basic):
+        # Regression: Phase 1 phải giải đúng ràng buộc '>=' (Z=9), không báo Infeasible.
         solution, logs = solve_with_simple_dictionary(problem_min_basic)
-        assert solution is not None
-        # Dantzig Phase 1 may or may not handle >= fully
-        if solution["status"] == "Optimal":
-            assert solution["objective_value"] == pytest.approx(9.0, abs=0.1)
+        assert_optimal(solution, 9.0, {"x1": 3.0, "x2": 1.0})
 
     def test_3_variables(self, problem_3var):
         solution, logs = solve_with_simple_dictionary(problem_3var)
@@ -254,9 +252,9 @@ class TestSimplexDantzig:
         assert solution["status"] == "Optimal"
 
     def test_negative_rhs_phase1(self, problem_negative_rhs):
+        # Regression: bài cần Phase 1 (b_i < 0 sau chuẩn hóa) phải đạt Optimal, Z=-6.
         solution, logs = solve_with_simple_dictionary(problem_negative_rhs)
-        assert solution is not None
-        assert solution["status"] in ["Optimal", "Feasible", "Infeasible", "MaxIterationsReached"]
+        assert_optimal(solution, -6.0)
 
     def test_degenerate(self, problem_degenerate):
         solution, logs = solve_with_simple_dictionary(problem_degenerate)
@@ -270,11 +268,9 @@ class TestSimplexDantzig:
         assert solution["status"] in ["Unbounded", "MaxIterationsReached"]
 
     def test_equality_constraint(self, problem_equality):
+        # Regression: ràng buộc '==' (tách thành <= và >=) phải giải đúng Z=5.
         solution, logs = solve_with_simple_dictionary(problem_equality)
-        assert solution is not None
-        # Equality constraint decomposed into <= and >= by standardizer
-        if solution["status"] == "Optimal":
-            assert solution["objective_value"] == pytest.approx(5.0, abs=0.1)
+        assert_optimal(solution, 5.0)
 
     def test_has_step_by_step(self, problem_max_basic):
         solution, logs = solve_with_simple_dictionary(problem_max_basic)
@@ -297,10 +293,9 @@ class TestSimplexBland:
         assert_optimal(solution, 36.0, {"x1": 2.0, "x2": 6.0})
 
     def test_minimize_with_geq(self, problem_min_basic):
+        # Regression: Bland Phase 1 phải giải đúng ràng buộc '>=' (Z=9).
         solution, logs = solve_with_simplex_bland(problem_min_basic)
-        assert solution is not None
-        if solution["status"] == "Optimal":
-            assert solution["objective_value"] == pytest.approx(9.0, abs=0.1)
+        assert_optimal(solution, 9.0, {"x1": 3.0, "x2": 1.0})
 
     def test_3_variables(self, problem_3var):
         solution, logs = solve_with_simplex_bland(problem_3var)
@@ -313,9 +308,9 @@ class TestSimplexBland:
         assert_optimal(solution, 1.0)
 
     def test_negative_rhs_phase1(self, problem_negative_rhs):
+        # Regression: Bland xử lý đúng bài cần Phase 1, Z=-6.
         solution, logs = solve_with_simplex_bland(problem_negative_rhs)
-        assert solution is not None
-        assert solution["status"] in ["Optimal", "Feasible", "Infeasible", "MaxIterationsReached"]
+        assert_optimal(solution, -6.0)
 
     def test_has_bland_header(self, problem_max_basic):
         """Output should contain Bland rule explanation."""
@@ -389,13 +384,11 @@ class TestDualSimplex:
     """Tests cho DualSimplexSolver (theory.md §3.7)."""
 
     def test_dual_feasible_problem(self, problem_dual_feasible):
-        """Standard dual simplex case: z coeffs >= 0, some b_i < 0."""
+        """Standard dual simplex case: z coeffs >= 0, some b_i < 0.
+        Regression: Dual Simplex phải giải đúng (Z=6), không báo Infeasible nhầm.
+        Min 2x1 + x2 s.t. x1+x2>=4, 2x1+x2>=6 → Optimal Z=6."""
         solution, logs = solve_with_dual_simplex(problem_dual_feasible)
-        assert solution is not None
-        if solution["status"] == "Optimal":
-            # Min 2x1 + x2 s.t. x1+x2>=4, 2x1+x2>=6
-            # Optimal: x1=2, x2=2, Z=6
-            assert solution["objective_value"] == pytest.approx(6.0, abs=0.1)
+        assert_optimal(solution, 6.0)
 
     def test_not_dual_feasible_rejected(self, problem_max_basic):
         """If z has negative coeffs after standardization, should report NotDualFeasible."""
@@ -434,18 +427,16 @@ class TestDualPrimalTwoPhase:
     """Tests cho DualPrimalTwoPhaseSolver (theory.md §3.8)."""
 
     def test_basic_minimize_geq(self, problem_min_basic):
-        """Should handle min with >= constraints."""
+        """Should handle min with >= constraints.
+        Regression: Phase 1 dual simplex phải đạt Optimal Z=9 (trước đây báo Infeasible)."""
         solution, logs = solve_with_dual_primal_two_phase(problem_min_basic)
-        assert solution is not None
-        if solution["status"] == "Optimal":
-            assert solution["objective_value"] == pytest.approx(9.0, abs=0.1)
+        assert_optimal(solution, 9.0, {"x1": 3.0, "x2": 1.0})
 
     def test_dual_feasible_also_works(self, problem_dual_feasible):
-        """DP2P should also handle problems that pure dual simplex can handle."""
+        """DP2P should also handle problems that pure dual simplex can handle.
+        Regression: phải đạt Optimal Z=6 (trước đây báo Infeasible)."""
         solution, logs = solve_with_dual_primal_two_phase(problem_dual_feasible)
-        assert solution is not None
-        if solution["status"] == "Optimal":
-            assert solution["objective_value"] == pytest.approx(6.0, abs=0.1)
+        assert_optimal(solution, 6.0)
 
     def test_maximize_problem(self, problem_max_basic):
         """Should handle maximization (standardized to min internally)."""
@@ -680,3 +671,65 @@ class TestEdgeCases:
         # Min x1 + x2 with no constraints and x >= 0 → optimal at origin
         if solution["status"] == "Optimal":
             assert solution["objective_value"] == pytest.approx(0.0, abs=1e-4)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. REGRESSION — Phase 1 sign-bug (>= / == constraints)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestPhase1SignRegression:
+    """Khóa lỗi đảo dấu trong Phase 1.
+
+    Trước đây _find_entering_var_phase1 (primal) và _select_entering_var_dual (dual)
+    chọn biến vào theo hệ số ÂM, trong khi với hàng cơ sở bất khả thi (b_i < 0) sinh
+    từ ràng buộc '>=' / '==', hệ số sau chuẩn hóa là DƯƠNG. Hậu quả: mọi bài có
+    '>=' / '==' bị 3 solver (simple_dictionary, simplex_bland, dual_primal_two_phase)
+    và dual_simplex báo Infeasible nhầm. Các test này đảm bảo điều đó không tái diễn.
+    """
+
+    # (objective, coeffs, constraints, expected_Z)  — đối chiếu với PuLP
+    CASES = [
+        ("minimize", [4, 3], [([2, 1], ">=", 8), ([1, 2], ">=", 7)], 18.0),
+        ("maximize", [1, 1], [([1, 1], "==", 10), ([1, 0], "<=", 6)], 10.0),
+        ("maximize", [3, 2], [([1, 1], "<=", 10), ([1, 0], ">=", 2), ([0, 1], ">=", 1)], 29.0),
+    ]
+
+    PRIMAL_SOLVERS = [
+        solve_with_simple_dictionary,
+        solve_with_simplex_bland,
+        solve_with_auxiliary_problem_simplex,
+        solve_with_dual_primal_two_phase,
+    ]
+
+    @pytest.mark.parametrize("objective, coeffs, cons, expected_z", CASES)
+    def test_primal_solvers_solve_geq_eq(self, objective, coeffs, cons, expected_z):
+        problem = {
+            "objective": objective,
+            "coeffs": coeffs,
+            "variables_names_for_title_only": [f"x{i+1}" for i in range(len(coeffs))],
+            "constraints": [
+                {"name": f"c{i+1}", "lhs": l, "op": o, "rhs": r}
+                for i, (l, o, r) in enumerate(cons)
+            ],
+        }
+        for solver_fn in self.PRIMAL_SOLVERS:
+            solution, _ = solver_fn(dict(problem))
+            assert solution is not None, f"{solver_fn.__name__} trả None"
+            assert solution["status"] == "Optimal", \
+                f"{solver_fn.__name__}: kỳ vọng Optimal, nhận {solution['status']}"
+            assert solution["objective_value"] == pytest.approx(expected_z, abs=1e-4), \
+                f"{solver_fn.__name__}: kỳ vọng Z={expected_z}, nhận {solution['objective_value']}"
+
+    def test_dual_simplex_solves_dual_feasible_geq(self):
+        # min với hệ số ≥ 0 và ràng buộc '>=' → dual feasible, primal infeasible ban đầu.
+        problem = {
+            "objective": "minimize",
+            "coeffs": [4, 3],
+            "variables_names_for_title_only": ["x1", "x2"],
+            "constraints": [
+                {"name": "c1", "lhs": [2, 1], "op": ">=", "rhs": 8},
+                {"name": "c2", "lhs": [1, 2], "op": ">=", "rhs": 7},
+            ],
+        }
+        solution, _ = solve_with_dual_simplex(problem)
+        assert_optimal(solution, 18.0)

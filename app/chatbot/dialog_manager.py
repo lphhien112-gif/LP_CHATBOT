@@ -3,7 +3,8 @@ import logging
 import json
 import os
 import re
-from typing import Dict, Any, List, Optional
+import random
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from pathlib import Path
 
 from app.nlp import (
@@ -62,23 +63,198 @@ class DialogManager:
             p = self.state.get("current_problem_definition", {})
         return bool(p and p.get("objective_type") and p.get("objective_coeffs_map"))
 
+    @staticmethod
+    def build_internal_from_structured(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Dựng internal_def (định dạng coeffs_map) từ dữ liệu FORM có cấu trúc —
+        bỏ qua hoàn toàn parser/LLM để nhập chính xác 100%.
+
+        data = {
+          "objective_type": "maximize"|"minimize",
+          "variables": ["x1","x2"],
+          "objective_coeffs": [c1, c2, ...],
+          "constraints": [{"coeffs": [...], "op": "<="|">="|"==", "rhs": r}, ...]
+        }
+        """
+        variables = [str(v).strip() for v in data.get("variables", []) if str(v).strip()]
+        if not variables:
+            raise ValueError("Thiếu danh sách biến.")
+        obj_coeffs = data.get("objective_coeffs", [])
+        obj_map = {v: float(obj_coeffs[i]) for i, v in enumerate(variables) if i < len(obj_coeffs)}
+        if not obj_map:
+            raise ValueError("Thiếu hệ số hàm mục tiêu.")
+
+        constraints = []
+        for i, c in enumerate(data.get("constraints", [])):
+            coeffs = c.get("coeffs", [])
+            cmap = {v: float(coeffs[j]) for j, v in enumerate(variables) if j < len(coeffs)}
+            op = str(c.get("op", "<=")).strip()
+            if op not in ("<=", ">=", "=="):
+                op = {"=": "==", "≤": "<=", "≥": ">="}.get(op, "<=")
+            constraints.append({
+                "name": f"c{i + 1}",
+                "coeffs_map": cmap,
+                "operator": op,
+                "rhs": float(c.get("rhs", 0.0)),
+            })
+
+        objective_type = str(data.get("objective_type", "maximize")).strip().lower()
+        if objective_type in ("max", "maximize"):
+            objective_type = "maximize"
+        elif objective_type in ("min", "minimize"):
+            objective_type = "minimize"
+
+        return {
+            "objective_type": objective_type,
+            "objective_coeffs_map": obj_map,
+            "objective_variables_ordered": variables,
+            "constraints": constraints,
+        }
+
+    # ── Chế độ Luyện tập (tutor) ───────────────────────────────────────────────
+    @staticmethod
+    def _gen_practice_problem() -> Dict[str, Any]:
+        """Sinh ngẫu nhiên bài LP 2 biến, max với hệ số & vế phải DƯƠNG → luôn bị
+        chặn, có nghiệm tối ưu hữu hạn > 0 (phù hợp để luyện tay)."""
+        rng = random.Random()
+        n_con = rng.choice([2, 3])
+        return {
+            "objective_type": "maximize",
+            "variables": ["x1", "x2"],
+            "objective_coeffs": [rng.randint(2, 9), rng.randint(2, 9)],
+            "constraints": [
+                {"coeffs": [rng.randint(1, 5), rng.randint(1, 5)], "op": "<=", "rhs": rng.randint(8, 30)}
+                for _ in range(n_con)
+            ],
+        }
+
+    def new_practice_problem(self) -> Dict[str, Any]:
+        """Tạo một bài luyện tập mới: sinh đề, giải sẵn (giấu đáp án trong state),
+        trả về phần hiển thị + danh sách biến để sinh viên nhập nghiệm.
+        Ưu tiên đề có NGHIỆM NGUYÊN (dễ tính tay) — thử tối đa 25 lần."""
+        from app.solver.dispatcher import dispatch_solver
+        best = None
+        for _ in range(25):
+            problem = self._gen_practice_problem()
+            internal = self.build_internal_from_structured(problem)
+            fmt = self._convert_internal_to_solver_format(internal)
+            sol, _ = dispatch_solver(problem_data=dict(fmt), solver_name="pulp_cbc")
+            if not sol or sol.get("status") != "Optimal":
+                continue
+            zv = sol.get("objective_value")
+            if zv is None or zv <= 0:
+                continue
+            record = (problem, internal, sol)
+            vals = list(sol.get("variables", {}).values())
+            nice = all(abs(v - round(v)) < 0.02 for v in vals) and abs(zv - round(zv)) < 0.02
+            if nice:
+                best = record
+                break
+            if best is None:
+                best = record
+        if best is None:
+            # cực hiếm: fallback một đề mặc định khả thi
+            problem = {"objective_type": "maximize", "variables": ["x1", "x2"],
+                       "objective_coeffs": [3, 2],
+                       "constraints": [{"coeffs": [1, 1], "op": "<=", "rhs": 4},
+                                        {"coeffs": [1, 0], "op": "<=", "rhs": 3}]}
+            internal = self.build_internal_from_structured(problem)
+            sol, _ = dispatch_solver(problem_data=dict(self._convert_internal_to_solver_format(internal)), solver_name="pulp_cbc")
+            best = (problem, internal, sol)
+
+        problem, internal, sol = best
+        self.state["practice"] = {
+            "problem": problem,
+            "internal": internal,
+            "solution": {
+                "status": (sol or {}).get("status"),
+                "objective_value": (sol or {}).get("objective_value"),
+                "variables": (sol or {}).get("variables", {}),
+            },
+        }
+        return {
+            "display_html": self._format_problem_summary(internal),
+            "variables": problem["variables"],
+        }
+
+    def grade_practice(self, answers: Dict[str, Any]) -> Dict[str, Any]:
+        """Chấm nghiệm sinh viên nhập so với đáp án đã giải sẵn, kèm lời giải mẫu."""
+        pr = self.state.get("practice")
+        if not pr:
+            return {"error": "Chưa có bài luyện tập. Hãy tạo bài mới."}
+        sol = pr["solution"]
+        exp_vars = {k: v for k, v in sol.get("variables", {}).items() if not str(k).startswith("_")}
+        exp_z = sol.get("objective_value")
+        tol = 0.05  # nới dung sai để sinh viên làm tròn thoải mái
+
+        def _f(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+
+        var_results = {}
+        all_ok = True
+        for v, ev in exp_vars.items():
+            gv = _f(answers.get(v))
+            ok = abs(gv - float(ev)) <= tol
+            var_results[v] = {"got": gv, "expected": float(ev), "ok": ok}
+            all_ok = all_ok and ok
+        gz = _f(answers.get("z"))
+        z_ok = exp_z is not None and abs(gz - float(exp_z)) <= tol
+        correct = all_ok and z_ok
+
+        # Lời giải mẫu (đơn hình từng bước) để sinh viên đối chiếu
+        from app.solver.algorithms.simplex import solve_with_simple_dictionary
+        try:
+            wsol, _ = solve_with_simple_dictionary(self._convert_internal_to_solver_format(pr["internal"]))
+            steps = wsol.get("step_by_step_md", [])
+        except Exception:
+            steps = []
+
+        return {
+            "correct": correct,
+            "z": {"got": gz, "expected": exp_z, "ok": z_ok},
+            "variables": var_results,
+            "solution_steps": steps,
+        }
+
+    @staticmethod
+    def _is_non_negativity(c: Dict) -> bool:
+        """True nếu ràng buộc là dạng phi âm 'x >= 0' (một biến, hệ số dương, vế phải 0).
+        Đây là ràng buộc DẤU ngầm định của QHTT dạng chuẩn — mọi solver đã tự giả định
+        x_i >= 0, nên không cần đưa vào hệ ràng buộc (tránh sinh biến bù thừa w_i và
+        khớp với cách trình bày trong lecture)."""
+        cm = {k: v for k, v in c.get("coeffs_map", {}).items() if abs(v) > 1e-9}
+        if len(cm) != 1:
+            return False
+        coeff = next(iter(cm.values()))
+        op = str(c.get("operator", ""))
+        rhs = c.get("rhs", 0.0)
+        return op in (">=", ">") and abs(rhs) < 1e-9 and coeff > 0
+
     def _convert_internal_to_solver_format(self, internal_def: Dict) -> Optional[Dict[str, Any]]:
         """Chuyển đổi từ định dạng coeffs_map nội bộ sang Định dạng A cho solver."""
         try:
+            constraints_in = internal_def.get("constraints", [])
+            # Biến quyết định: gộp từ hàm mục tiêu + TẤT CẢ ràng buộc (kể cả 'x >= 0')
+            # để không đánh mất biến nào khỏi mô hình.
             all_vars = set(internal_def.get("objective_variables_ordered", []))
-            for c in internal_def.get("constraints", []):
+            for c in constraints_in:
                 all_vars.update(c.get("coeffs_map", {}).keys())
             ordered_vars = sorted(list(all_vars))
+
+            # Loại bỏ ràng buộc phi âm khỏi hệ ràng buộc của solver (ngầm định).
+            functional = [c for c in constraints_in if not self._is_non_negativity(c)]
 
             return {
                 "objective": internal_def["objective_type"],
                 "coeffs": [internal_def["objective_coeffs_map"].get(v, 0.0) for v in ordered_vars],
                 "variables_names_for_title_only": ordered_vars,
                 "constraints": [{
-                    "name": c.get("name", f"c{i+1}"),
+                    "name": f"c{i+1}",
                     "lhs": [c["coeffs_map"].get(v, 0.0) for v in ordered_vars],
                     "op": c["operator"], "rhs": c["rhs"]
-                } for i, c in enumerate(internal_def.get("constraints", []))]
+                } for i, c in enumerate(functional)]
             }
         except Exception as e:
             self._log(f"Lỗi khi chuyển đổi định dạng cho solver: {e}")
@@ -118,11 +294,12 @@ class DialogManager:
         if "bland" in m:
             return "simplex_bland"
         
-        # 5. Geometric
-        if ("hình học" in m or "hình" in m or "geo" in m or
+        # 5. Geometric — KHÔNG dùng "hình" trần vì nó nằm trong "đơn hình", "mô hình".
+        #    Chỉ nhận các cụm rõ nghĩa hình học.
+        if ("hình học" in m or "geometric" in m or "geo " in m or
             "vẽ" in m or "đồ thị" in m or "đồ_thị" in m):
             return "geometric"
-        
+
         # 6. Simplex (basic) — must come AFTER bland/dual checks
         if "đơn hình" in m or "simplex" in m or "simple" in m:
             return "simple_dictionary"
@@ -244,6 +421,13 @@ class DialogManager:
                 self._log(f"Người dùng đã chọn bài toán mẫu: {chosen_problem['name']}")
                 # Parse bài toán từ chuỗi và giải
                 parsed_lp, _ = self.lp_formula_parser(chosen_problem['full_problem_string'])
+                if not parsed_lp:
+                    # Bài toán mẫu không parse được — báo lỗi thay vì gán None vào state
+                    self._log(f"Lỗi: Không thể phân tích bài toán mẫu '{chosen_problem['name']}'.")
+                    yield {"type": "complete", "result": self._finalize_response({
+                        "text_response": f"Xin lỗi, dữ liệu bài toán mẫu '{chosen_problem['name']}' bị lỗi và không thể phân tích. Bạn vui lòng chọn bài toán khác hoặc tự nhập đề bài nhé."
+                    })}
+                    return
                 self.state['current_problem_definition'] = parsed_lp
                 self.state['expectation'] = None # Xóa trạng thái chờ
                 # Dùng solver ưu tiên từ JSON để hiện step-by-step tableaus
@@ -336,6 +520,7 @@ class DialogManager:
                 if s_key == "geometric" and len(solver_format.get("variables_names_for_title_only", [])) != 2:
                     continue
                 suggestions.append(s_label)
+            suggestions.append("So sánh các phương pháp")
         suggestions.append("Bắt đầu bài toán mới")
 
         # Final assembled content: summary (HTML) + tableaus (LaTeX/MD) + LLM (MD) + image
@@ -351,8 +536,125 @@ class DialogManager:
             "suggestions": suggestions
         })}
 
-    async def handle_message(self, user_message: str) -> Dict[str, Any]:
-        """Hàm chính điều phối luồng hội thoại."""
+    async def _handle_generate_exercise(self, user_message: str):
+        """Sinh một bài tập LP mới qua LLM, parse và đặt làm bài toán hiện tại để
+        người dùng có thể giải ngay."""
+        if not self.openai_client.client:
+            yield {"type": "complete", "result": self._finalize_response({
+                "text_response": "Tính năng tạo bài tập cần kết nối AI (hiện chưa sẵn sàng). "
+                                 "Bạn có thể chọn **bài toán mẫu** hoặc tự nhập đề nhé.",
+                "suggestions": ["Giải bài toán mẫu", "Bắt đầu bài toán mới"],
+            })}
+            return
+
+        exercise_text = await self.openai_client.generate_exercise(user_message)
+        if not exercise_text:
+            yield {"type": "complete", "result": self._finalize_response({
+                "text_response": "Xin lỗi, mình chưa tạo được bài tập lúc này. Bạn thử lại nhé.",
+                "suggestions": ["Tạo bài tập khác", "Giải bài toán mẫu"],
+            })}
+            return
+
+        # Tách NGỮ CẢNH (văn xuôi) khỏi MÔ HÌNH hình thức. Chỉ parse phần hình thức
+        # (từ "Maximize"/"Minimize") — nếu parse cả văn xuôi, parser sẽ bắt nhầm cụm
+        # "tối đa hóa lợi nhuận" trong prose thành hàm mục tiêu (vd ra {'l': 1.0}).
+        mk = re.search(r'(?i)\b(maximize|minimize)\b', exercise_text)
+        context = exercise_text[:mk.start()].strip() if mk else ""
+        formal = exercise_text[mk.start():].strip() if mk else exercise_text
+        parsed_lp, _ = self.lp_formula_parser(formal)
+
+        display = "📝 **Bài tập luyện tập mới:**\n\n"
+        if parsed_lp:
+            self.state['current_problem_definition'] = parsed_lp
+            self.state['expectation'] = None
+            suggestions = ["Giải bằng đơn hình", "Giải bằng hình học", "Tạo bài tập khác"]
+            # Hiển thị ngữ cảnh + mô hình ĐÃ CHUẨN HÓA (đồng nhất, tránh LLM viết "10×1").
+            if context:
+                display += context + "\n\n"
+            display += self._format_problem_summary(parsed_lp)
+            allow_html = True
+        else:
+            self._log("Không parse được bài tập vừa sinh — vẫn hiển thị text thô.")
+            suggestions = ["Tạo bài tập khác", "Bắt đầu bài toán mới"]
+            display += exercise_text
+            allow_html = False
+
+        yield {"type": "complete", "result": self._finalize_response({
+            "text_response": display,
+            "suggestions": suggestions,
+            "allow_html": allow_html,
+        })}
+
+    async def _handle_compare_methods(self):
+        """So sánh kết quả của nhiều phương pháp giải trên cùng bài toán hiện tại."""
+        internal = self.state.get("current_problem_definition")
+        if not internal:
+            yield {"type": "complete", "result": self._finalize_response({
+                "text_response": "Bạn cần nhập hoặc chọn một bài toán trước khi so sánh các phương pháp nhé.",
+                "suggestions": ["Nhập bài toán mẫu", "Tạo bài tập"],
+            })}
+            return
+
+        solver_format = self._convert_internal_to_solver_format(internal)
+        if not solver_format:
+            yield {"type": "complete", "result": self._finalize_response({
+                "text_response": "Rất tiếc, có lỗi khi chuẩn bị dữ liệu để so sánh.",
+            })}
+            return
+
+        from starlette.concurrency import run_in_threadpool
+        n_vars = len(solver_format.get("variables_names_for_title_only", []))
+        methods = [
+            ("simple_dictionary", "Đơn hình (từ điển)"),
+            ("simplex_bland", "Đơn hình Bland"),
+            ("auxiliary", "Hai pha"),
+            ("dual_simplex", "Đối ngẫu"),
+            ("dual_primal_two_phase", "Hai pha đối ngẫu"),
+            ("geometric", "Hình học"),
+            ("pulp_cbc", "PuLP CBC"),
+        ]
+        rows = []
+        opt_values = []
+        for skey, slabel in methods:
+            if skey == "geometric" and n_vars != 2:
+                rows.append((slabel, "Không áp dụng (chỉ 2 biến)", "—"))
+                continue
+            try:
+                sol, _ = await run_in_threadpool(dispatch_solver, dict(solver_format), solver_name=skey)
+            except Exception as e:
+                self._log(f"So sánh: solver '{skey}' lỗi: {e}")
+                rows.append((slabel, "Lỗi", "—"))
+                continue
+            status = (sol or {}).get("status", "—")
+            obj = (sol or {}).get("objective_value")
+            if status == "Optimal" and obj is not None:
+                opt_values.append(round(float(obj), 4))
+                rows.append((slabel, "Tối ưu", f"{obj:g}".replace('.', ',')))
+            else:
+                # NotDualFeasible của dual_simplex trên bài không phù hợp là ĐÚNG (không phải lỗi)
+                nice = {"NotDualFeasible": "Không phù hợp (cần dual-feasible)",
+                        "Infeasible": "Vô nghiệm", "Unbounded": "Không giới nội"}.get(status, status)
+                rows.append((slabel, nice, "—"))
+
+        table = "## So sánh các phương pháp giải\n\n"
+        table += "| Phương pháp | Trạng thái | Giá trị tối ưu $z^{*}$ |\n|---|---|---|\n"
+        for label, status, val in rows:
+            table += f"| {label} | {status} | {val} |\n"
+
+        distinct = set(opt_values)
+        if len(distinct) == 1 and opt_values:
+            table += f"\n✅ Các phương pháp áp dụng được đều cho cùng nghiệm tối ưu $z^{{*}} = {f'{opt_values[0]:g}'.replace('.', ',')}$ — kết quả nhất quán."
+        elif len(distinct) > 1:
+            table += "\n⚠️ Có chênh lệch giữa các phương pháp — cần kiểm tra lại đề bài."
+
+        yield {"type": "complete", "result": self._finalize_response({
+            "text_response": table,
+            "allow_html": False,
+            "suggestions": ["Giải bằng đơn hình", "Giải bằng hình học", "Bắt đầu bài toán mới"],
+        })}
+
+    async def handle_message(self, user_message: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """Hàm chính điều phối luồng hội thoại (async generator, yield từng event)."""
         self._log(f"Đang xử lý tin nhắn: '{user_message}' (Trạng thái chờ: {self.state['expectation']})")
         self.state["history"].append({"role": "user", "content": user_message})
 
@@ -388,6 +690,19 @@ class DialogManager:
         
         if "bài toán mẫu" in user_message.lower():
              async for event in self._handle_list_sample_problems():
+                 yield event
+             return
+
+        # Tạo bài tập mới (sinh đề luyện tập). Tránh nhầm với "bài toán mẫu" (danh sách mẫu).
+        _m_low = user_message.lower()
+        if ("bài tập" in _m_low or "ra đề" in _m_low or "tạo đề" in _m_low) and "mẫu" not in _m_low:
+             async for event in self._handle_generate_exercise(user_message):
+                 yield event
+             return
+
+        # So sánh các phương pháp giải trên bài toán hiện tại
+        if ("so sánh" in _m_low) and self._is_problem_defined():
+             async for event in self._handle_compare_methods():
                  yield event
              return
         

@@ -29,21 +29,29 @@ from app.nlp.ai.prompts import (
     EXPLAIN_SIMPLEX_STEP_PROMPT,
     FORMAT_SOLVER_SOLUTION_PROMPT,
     EXTRACT_LP_AS_STRUCTURED_PROMPT,
+    GENERATE_EXERCISE_PROMPT,
+    EXTRACT_LP_FROM_IMAGE_PROMPT,
 )
 
 
 logger = logging.getLogger(__name__)
 
 class OpenAiClient:
-    def __init__(self, api_key: Optional[str] = os.getenv("OPENAI_API_KEY"), model_name: str = os.getenv("MODEL_NAME")):
+    def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None,
+                 base_url: Optional[str] = None):
         """
-        Khởi tạo parser sử dụng OpenAI.
-        :param api_key: Khóa API cho OpenAI (nên dùng môi trường OPENAI_API_KEY).
-        :param model_name: Tên mô hình OpenAI sẽ sử dụng (từ môi trường hoặc mặc định).
+        Khởi tạo client LLM (tương thích OpenAI, hỗ trợ proxy base_url).
+
+        Đọc cấu hình từ biến môi trường, chấp nhận cả tên chuẩn của SDK lẫn tên rút gọn:
+          - API key:  OPENAI_API_KEY  ||  API_KEY
+          - Base URL: OPENAI_BASE_URL ||  BASE_URL   (để trỏ tới proxy tương thích OpenAI)
+          - Model:    MODEL_NAME      ||  OPENAI_MODEL
+        Tham số truyền trực tiếp (nếu có) sẽ được ưu tiên hơn biến môi trường.
         """
         self.logs: List[str] = []
-        self.api_key = api_key
-        self.model_name = model_name
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("BASE_URL")
+        self.model_name = model_name or os.getenv("MODEL_NAME") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
         self.timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "15.0"))
         self.client: Optional[AsyncOpenAI] = None
 
@@ -53,13 +61,19 @@ class OpenAiClient:
 
         if self.api_key:
             try:
-                self.client = AsyncOpenAI(api_key=self.api_key, timeout=self.timeout)
-                self._log(f"Đã cấu hình API OpenAI thành công với model '{self.model_name}'.")
+                client_kwargs: Dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout}
+                if self.base_url:
+                    client_kwargs["base_url"] = self.base_url
+                self.client = AsyncOpenAI(**client_kwargs)
+                self._log(
+                    f"Đã cấu hình client LLM thành công: model='{self.model_name}', "
+                    f"base_url='{self.base_url or 'mặc định (api.openai.com)'}'."
+                )
             except Exception as e:
-                self._log(f"Lỗi khi cấu hình API OpenAI: {e}")
+                self._log(f"Lỗi khi cấu hình client LLM: {e}")
                 self.client = None
         else:
-            self._log("Cảnh báo: API Key cho OpenAI không được cung cấp.")
+            self._log("Cảnh báo: API Key cho LLM không được cung cấp (đặt OPENAI_API_KEY hoặc API_KEY).")
 
     def _log(self, message: str):
         self.logs.append(message)
@@ -107,6 +121,7 @@ class OpenAiClient:
 
         self._log(f"Đang gửi prompt (Stream) tới OpenAI ({self.model_name})...")
         try:
+            import asyncio
             # Nếu model là gpt-5, loại bỏ temperature (gpt-5 chỉ hỗ trợ mặc định 1.0)
             kwargs = {
                 "model": self.model_name,
@@ -116,11 +131,19 @@ class OpenAiClient:
             if not self.model_name.startswith("gpt-5"):
                 kwargs["temperature"] = temperature
 
-            stream = await self.client.chat.completions.create(**kwargs)
+            # Bảo vệ thời điểm thiết lập stream bằng timeout (giống bản non-stream)
+            # để tránh treo vô hạn khi server không phản hồi.
+            stream = await asyncio.wait_for(
+                self.client.chat.completions.create(**kwargs),
+                timeout=self.timeout + 2.0
+            )
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content is not None:
                     yield chunk.choices[0].delta.content
             self._log("Dòng dữ liệu Stream đã kết thúc thành công.")
+        except asyncio.TimeoutError:
+            self._log(f"Lỗi: Timeout khi thiết lập stream OpenAI (quá {self.timeout} giây).")
+            yield "\nXin lỗi, yêu cầu tới AI bị quá thời gian chờ. Vui lòng thử lại."
         except Exception as e:
             self._log(f"Lỗi khi gọi OpenAI API (Stream): {e}")
             yield f"\nĐã có lỗi xảy ra trong quá trình nhận dữ liệu từ AI: {e}"
@@ -157,6 +180,51 @@ class OpenAiClient:
     async def explain_lp_concept(self, concept_name: str) -> Optional[str]:
         prompt = EXPLAIN_LP_CONCEPT_PROMPT.format(concept_name=concept_name)
         return await self._call_llm_api(prompt)
+
+    async def generate_exercise(self, hint: str = "") -> Optional[str]:
+        """Sinh một bài tập LP mới (ngữ cảnh + khối Maximize/Subject to) để luyện tập."""
+        prompt = GENERATE_EXERCISE_PROMPT.format(
+            user_hint=(hint.strip() or "Tự chọn chủ đề và độ khó vừa phải.")
+        )
+        return await self._call_llm_api(prompt)
+
+    async def extract_lp_from_image(self, image_data_url: str) -> Optional[str]:
+        """Đọc đề bài LP từ ẢNH (data URL base64) bằng model vision. Trả về văn bản đề
+        ở định dạng Maximize/Minimize + Subject to, hoặc None nếu lỗi/không phải LP."""
+        if not self.client:
+            return None
+        self.logs.clear()
+        self._log("Đang đọc đề từ ảnh (vision)...")
+        try:
+            import asyncio
+            resp = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": EXTRACT_LP_FROM_IMAGE_PROMPT},
+                            {"type": "image_url", "image_url": {"url": image_data_url}},
+                        ],
+                    }],
+                ),
+                timeout=self.timeout + 15.0,  # ảnh cần thêm thời gian
+            )
+            if resp.choices and resp.choices[0].message.content:
+                text = resp.choices[0].message.content.strip()
+                if "KHONG_PHAI_LP" in text:
+                    return None
+                # Loại bỏ khối ```...``` nếu model bọc code fence
+                text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text).strip()
+                self._log("Đã đọc đề từ ảnh.")
+                return text or None
+            return None
+        except asyncio.TimeoutError:
+            self._log("Timeout khi đọc ảnh.")
+            return None
+        except Exception as e:
+            self._log(f"Lỗi khi đọc ảnh (có thể model không hỗ trợ vision): {e}")
+            return None
         
     async def convert_story_to_lp(self, user_story: str) -> Optional[Dict[str, Any]]:
         prompt = CONVERT_STORY_TO_LP_PROMPT.format(user_story=user_story)

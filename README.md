@@ -57,10 +57,6 @@ Phần toán do **bộ giải thật** đảm nhiệm (**0 sai lệch** so với
   </tr>
 </table>
 
-> 💡 **Để video tự phát ngay trong README trên GitHub:** mở một Issue/PR mới trên github.com,
-> kéo–thả `demo/assets/lp_chatbot_demo.mp4` vào ô bình luận; GitHub sinh URL `user-attachments/...`,
-> dán URL đó thay cho link MP4 ở trên. Cách tạo lại video & GIF: xem [demo/README.md](demo/README.md).
-
 ---
 
 ## 🎯 Giới thiệu

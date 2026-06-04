@@ -4,19 +4,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def test_read_root_redirects_to_chat(client: TestClient):
-    """Kiểm tra endpoint gốc ('/') có chuyển hướng đến '/chat' không."""
+def test_read_root_serves_or_redirects_to_spa(client: TestClient):
+    """Endpoint gốc ('/'): nếu SPA đã build → chuyển hướng tới /app/; nếu chưa →
+    trang hướng dẫn build (200). Không còn giao diện Jinja /chat cũ."""
     response = client.get("/", follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/chat"
+    if response.status_code == 307:
+        assert response.headers["location"] == "/app/"
+    else:
+        assert response.status_code == 200
 
 
-def test_get_chat_interface(client: TestClient):
-    """Kiểm tra giao diện chat có trả về HTML 200 OK không."""
+def test_old_chat_route_removed(client: TestClient):
+    """Route Jinja cũ /chat đã được gỡ (404)."""
     response = client.get("/chat")
-    assert response.status_code == 200
-    assert "text/html" in response.headers["content-type"]
-    assert "LP Chatbot" in response.text
+    assert response.status_code == 404
 
 
 def test_send_message_returns_streaming_response(client: TestClient):

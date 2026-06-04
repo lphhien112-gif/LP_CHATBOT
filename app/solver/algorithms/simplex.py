@@ -42,7 +42,11 @@ class SimpleDictionarySolver(BaseSimplexDictionarySolver):
             self._log(f"ERROR: Objective key '{self.current_objective_key}' not found for entering var selection.")
             return None
 
-        most_negative_coeff = self.epsilon # Tìm hệ số < 0 có giá trị tuyệt đối lớn nhất
+        # Chỉ chọn biến vào nếu hệ số mục tiêu âm thực sự (nhỏ hơn -epsilon).
+        # Khởi tạo bằng -epsilon (KHÔNG phải +epsilon) để tránh chọn nhầm các hệ số
+        # dương rất nhỏ (~0) làm biến vào — điều này có thể gây pivot không cải thiện
+        # hoặc xoay vòng (cycling).
+        most_negative_coeff = -self.epsilon # Tìm hệ số < 0 có giá trị tuyệt đối lớn nhất
         entering_var: Optional[str] = None
 
         sorted_non_basic_vars = sorted(

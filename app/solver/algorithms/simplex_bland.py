@@ -44,12 +44,16 @@ class SimplexBlandSolver(BaseSimplexDictionarySolver):
         if not self._build_initial_dictionary():
             return self._extract_solution("ErrorInSetup"), self.logs
 
-        # Thêm header giải thích quy tắc Bland cho Markdown
-        self.step_by_step_md.insert(0, "\\textbf{Phương pháp xoay Bland:}\n\n"
-                                       "\\textbf{Chọn biến vào:} Trong số các biến không cơ sở có hệ số âm ($G < 0$) \\\\\n"
-                                       "Chọn \\textbf{biến có chỉ số nhỏ nhất} ($x_1, x_2, x_3, w_1, w_2$)\n\n"
-                                       "\\textbf{Chọn biến ra:} Y như đơn hình tính $\\frac{b_i}{a_{ij}} (=0)$\n\n"
-                                       "\\textbf{\\underline{VD:}}\n")
+        # Header giải thích quy tắc Bland — dùng MARKDOWN (**bold**), KHÔNG dùng
+        # \textbf/\underline (lệnh LaTeX text-mode, nằm ngoài $...$ sẽ không được
+        # KaTeX render và hiện ra chữ thô trên giao diện).
+        self.step_by_step_md.insert(0,
+            "**Phương pháp xoay Bland:**\n\n"
+            "**Chọn biến vào:** trong số các biến không cơ sở có hệ số âm ($G < 0$), "
+            "chọn **biến có chỉ số nhỏ nhất**.\n\n"
+            "**Chọn biến ra:** như đơn hình thường, tính tỉ số $\\frac{b_i}{a_{ij}}$ "
+            "(lấy giá trị $\\ge 0$ nhỏ nhất).\n\n"
+            "**Ví dụ:**\n")
 
         initial_feasibility_check_var = self._find_leaving_var_phase1()
         if initial_feasibility_check_var is not None:

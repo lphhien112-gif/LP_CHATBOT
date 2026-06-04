@@ -57,22 +57,20 @@ Giải thích ngắn gọn (dùng **bold** cho thuật ngữ, $LaTeX$ cho công 
 3. **Biến ra** (Leaving) và lý do (dựa trên tỉ số ratios).
 4. Kết luận phép xoay (pivot)."""
 
-FORMAT_SOLVER_SOLUTION_PROMPT = """Trình bày kết quả LP bằng tiếng Việt, Markdown đẹp.
+FORMAT_SOLVER_SOLUTION_PROMPT = """Bạn là trợ giảng Quy hoạch tuyến tính. ĐỀ BÀI và LỜI GIẢI TỪNG BƯỚC (bảng/từ điển) ĐÃ được hiển thị đầy đủ ngay phía trên cho người học. Nhiệm vụ của bạn: viết phần DIỄN GIẢI Ý NGHĨA kết quả — NGẮN GỌN.
 
-**Bài toán:** {objective_type} $Z = {objective_expression}$
-**Ràng buộc:**
-{constraints_str}
+Kết quả giải được (CHÍNH XÁC, hãy dùng đúng các số này, KHÔNG tự bịa):
+- Trạng thái: {status}
+- Giá trị tối ưu: Z = {objective_value}
+- Nghiệm tối ưu: {variables_str}
 
-**Kết quả:** Trạng thái: {status}, $Z = {objective_value}$, Các biến: {variables_str}
-
-YÊU CẦU FORMAT:
-- Dùng Markdown: **bold**, bullet points `-`
-- Dùng KaTeX inline $...$ cho công thức
-- Bỏ qua biến kỹ thuật (bắt đầu bằng `_`)
-- Nếu Optimal: Chúc mừng, nêu cách phân bổ tài nguyên
-- Nếu Infeasible: Giải thích ràng buộc mâu thuẫn
-- Nếu Unbounded: Giải thích thiếu ràng buộc
-- Ngắn gọn, tối đa 150 từ"""
+YÊU CẦU:
+- TUYỆT ĐỐI KHÔNG liệt kê lại hàm mục tiêu, ràng buộc, hay bảng — chúng đã hiển thị ở trên.
+- Nếu Optimal: bắt đầu bằng "🎉", nêu rõ nghiệm tối ưu và diễn giải ngắn ý nghĩa (vd cách phân bổ tài nguyên, đánh đổi).
+- Nếu Infeasible: giải thích ngắn vì sao các ràng buộc mâu thuẫn (vô nghiệm).
+- Nếu Unbounded: giải thích ngắn vì sao hàm mục tiêu không bị chặn.
+- Bỏ qua biến kỹ thuật (bắt đầu bằng `_`). Dùng $...$ cho công thức inline khi cần.
+- Tiếng Việt, 2–4 câu, tối đa ~80 từ."""
 
 EXTRACT_LP_AS_STRUCTURED_PROMPT = """You are an LP expert. Rewrite the following natural-language LP problem as STRICT LP notation.
 
@@ -92,3 +90,38 @@ Natural-language problem:
 {user_story}
 
 LP Output:"""
+
+EXTRACT_LP_FROM_IMAGE_PROMPT = """Bạn đang nhìn một ẢNH chứa đề bài Quy hoạch tuyến tính (có thể viết tay hoặc in).
+Hãy ĐỌC và chép lại đề thành văn bản rõ ràng, GIỮ NGUYÊN số liệu.
+
+ĐỊNH DẠNG ĐẦU RA (chỉ xuất phần này, không giải, không bình luận):
+Maximize: <biểu thức>      (hoặc "Minimize:")
+Subject to:
+<ràng buộc 1>
+<ràng buộc 2>
+...
+<điều kiện dấu, ví dụ: x1, x2 >= 0>
+
+QUY TẮC:
+- Dùng tên biến đúng như trong ảnh (x1, x2, … hoặc x, y). Toán tử: <=, >=, =.
+- Nếu ảnh KHÔNG phải đề Quy hoạch tuyến tính, chỉ trả về đúng một dòng: KHONG_PHAI_LP
+- Tuyệt đối không thêm lời giải hay giải thích."""
+
+GENERATE_EXERCISE_PROMPT = """Bạn là giảng viên Quy hoạch tuyến tính. Hãy TẠO MỚI MỘT bài tập LP để sinh viên luyện tập.
+
+YÊU CẦU:
+- Đúng 2 biến quyết định x1, x2 (để có thể giải được cả bằng hình học).
+- Hệ số là số NGUYÊN nhỏ (1–50). Bài toán phải CÓ nghiệm tối ưu hữu hạn (KHÔNG vô nghiệm, KHÔNG không giới nội).
+- Có 1 đoạn ngữ cảnh thực tế ngắn (2–3 câu): sản xuất, dinh dưỡng, vận tải, đầu tư, nông nghiệp…
+- Gợi ý của người dùng (nếu có): {user_hint}
+
+ĐỊNH DẠNG ĐẦU RA (BẮT BUỘC, để hệ thống đọc được — KHÔNG giải):
+[Đoạn ngữ cảnh thực tế, 2-3 câu, có thể đặt tên biến rõ ràng]
+
+Maximize: <biểu thức theo x1, x2>      (hoặc "Minimize:")
+Subject to:
+<ràng buộc 1 theo x1, x2 với <= hoặc >=>
+<ràng buộc 2>
+x1, x2 >= 0
+
+CHỈ xuất đúng phần trên (ngữ cảnh + khối Maximize/Subject to). Không giải, không thêm lời bình."""

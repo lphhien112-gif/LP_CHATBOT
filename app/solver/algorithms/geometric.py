@@ -25,7 +25,12 @@ def _plot_feasible_region(
     is_unbounded: bool = False,
     variable_names: List[str] = ["x1", "x2"] # Thêm tên biến để hiển thị trục
 ) -> str:
-    fig, ax = plt.subplots(figsize=(9, 9))
+    fig, ax = plt.subplots(figsize=(8, 8), facecolor='white')
+    ax.set_facecolor('#f8fafc')  # nền slate-50 nhẹ
+    # Bảng màu cho các đường ràng buộc — ưu tiên màu TƯƠNG PHẢN với miền nghiệm teal
+    # (đỏ/lam/cam/tím trước; xanh lá để cuối để tránh trùng màu miền nghiệm).
+    _PALETTE = ['#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899',
+                '#f97316', '#0ea5e9', '#a855f7', '#14b8a6', '#10b981']
 
     plot_main_title = problem_title
     if is_unbounded:
@@ -35,21 +40,22 @@ def _plot_feasible_region(
     elif not constraints_to_draw:
         plot_subtitle = "Không có ràng buộc nào được cung cấp"
     else:
-        plot_subtitle = "Miền Khả Thi và Điểm Tối Ư"
+        plot_subtitle = "Miền khả thi và điểm tối ưu"
 
-    fig.suptitle(plot_main_title, fontsize=16, fontweight='bold')
-    ax.set_title(plot_subtitle, fontsize=12)
+    fig.suptitle(plot_main_title, fontsize=15, fontweight='bold', color='#1e293b')
+    ax.set_title(plot_subtitle, fontsize=11, color='#64748b')
 
     if not is_unbounded and feasible_vertices and len(feasible_vertices) >= 3:
         center = np.mean(feasible_vertices, axis=0)
         # Sắp xếp các đỉnh để vẽ đa giác lồi
         sorted_vertices = sorted(feasible_vertices, key=lambda v: np.arctan2(v[1] - center[1], v[0] - center[0]))
-        polygon = plt.Polygon(sorted_vertices, color='lightcyan', alpha=0.7, ec='teal', linewidth=1.5)
+        polygon = plt.Polygon(sorted_vertices, facecolor='#0d9488', alpha=0.16,
+                              edgecolor='#0f766e', linewidth=2, zorder=1)
         ax.add_patch(polygon)
     elif not is_unbounded and feasible_vertices and len(feasible_vertices) == 2: # Đoạn thẳng
-        ax.plot([v[0] for v in feasible_vertices], [v[1] for v in feasible_vertices], color='teal', linewidth=3, alpha=0.7)
+        ax.plot([v[0] for v in feasible_vertices], [v[1] for v in feasible_vertices], color='#0f766e', linewidth=3, alpha=0.8)
     elif not is_unbounded and feasible_vertices and len(feasible_vertices) == 1: # Một điểm
-         ax.plot(feasible_vertices[0][0], feasible_vertices[0][1], 'o', color='teal', markersize=8, alpha=0.7)
+         ax.plot(feasible_vertices[0][0], feasible_vertices[0][1], 'o', color='#0f766e', markersize=8, alpha=0.8)
 
     # Tính toán giới hạn cho trục vẽ
     padding_factor = 0.3
@@ -92,15 +98,12 @@ def _plot_feasible_region(
 
     line_x_coords_plot = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 200)
 
-    cmap = plt.colormaps['viridis']  # Updated: plt.cm.get_cmap() is deprecated in Matplotlib 3.9+
-    num_total_colors = cmap.N if hasattr(cmap, 'N') else 10
-
     for i, constr in enumerate(constraints_to_draw):
         c = constr["coefficients"] # Đã là 'coefficients'
         r = constr["rhs"]
         op = constr["type"]       # Đã là 'type'
         constr_name = constr.get("name", f"({i+1})")
-        current_line_color = cmap(i / max(1, len(constraints_to_draw) -1 ) if len(constraints_to_draw)>1 else 0.5)
+        current_line_color = _PALETTE[i % len(_PALETTE)]
 
 
         line_drawn = False
@@ -146,36 +149,52 @@ def _plot_feasible_region(
                 arrow_tip_x = arrow_base_x + arrow_dir_x_comp * actual_arrow_length
                 arrow_tip_y = arrow_base_y + arrow_dir_y_comp * actual_arrow_length
 
+                # Mũi tên chỉ HƯỚNG khả thi (≤/≥), mảnh & mờ để không gây rối.
+                # KHÔNG vẽ nhãn tên ràng buộc ở giữa hình — đã có trong chú giải (legend).
                 ax.annotate("", xy=(arrow_tip_x, arrow_tip_y),
                             xytext=(arrow_base_x, arrow_base_y),
-                            arrowprops=dict(arrowstyle="-|>", color=arrow_color_to_use, lw=1.2, mutation_scale=15))
-
-                text_offset_from_arrow_body = actual_arrow_length * 0.4
-                text_x = arrow_tip_x + arrow_dir_x_comp * text_offset_from_arrow_body
-                text_y = arrow_tip_y + arrow_dir_y_comp * text_offset_from_arrow_body
-
-                ax.text(text_x, text_y, constr_name, fontsize=7, color=arrow_color_to_use,
-                        ha='center', va='center', bbox=dict(boxstyle='circle,pad=0.15', fc='white', alpha=0.7, ec='none'))
+                            arrowprops=dict(arrowstyle="-|>", color=arrow_color_to_use,
+                                            lw=1.0, alpha=0.55, mutation_scale=12))
 
     current_x_range_plot = ax.get_xlim()[1] - ax.get_xlim()[0]
     current_y_range_plot = ax.get_ylim()[1] - ax.get_ylim()[0]
 
+    # Chuẩn hoá -0.00 thành 0.00 khi hiển thị toạ độ
+    def _c0(v):
+        return 0.0 if abs(v) < 1e-9 else v
+
     if feasible_vertices:
         for i, v_point in enumerate(feasible_vertices):
-            ax.plot(v_point[0], v_point[1], 'o', color='crimson', markersize=7, label='Đỉnh Khả Thi' if i==0 and not is_unbounded else None, zorder=5)
-            ax.text(v_point[0] + 0.015 * current_x_range_plot, v_point[1] + 0.015 * current_y_range_plot, f'{chr(65+i)} ({v_point[0]:.2f}, {v_point[1]:.2f})', fontsize=8, zorder=6)
+            ax.plot(v_point[0], v_point[1], 'o', color='#e11d48', markersize=7, mec='white', mew=1.0, label='Đỉnh khả thi' if i==0 and not is_unbounded else None, zorder=5)
+            # Bỏ nhãn chữ cho đỉnh trùng điểm tối ưu (đã có nhãn "Tối ưu" riêng → tránh đè).
+            is_opt = optimal_vertex is not None and not is_unbounded and \
+                     abs(v_point[0] - optimal_vertex[0]) < 1e-4 and abs(v_point[1] - optimal_vertex[1]) < 1e-4
+            if not is_opt:
+                ax.text(v_point[0] + 0.02 * current_x_range_plot, v_point[1] + 0.02 * current_y_range_plot, f'{chr(65+i)}({_c0(v_point[0]):.2f}, {_c0(v_point[1]):.2f})', fontsize=8.5, color='#334155', fontweight='medium', zorder=6)
 
     if optimal_vertex is not None and not is_unbounded:
-        ax.plot(optimal_vertex[0], optimal_vertex[1], 'o', color='gold', markersize=12, mec='black', label='Điểm Tối Ư', zorder=7)
-        ax.text(optimal_vertex[0] + 0.015 * current_x_range_plot, optimal_vertex[1] - 0.04 * current_y_range_plot, f'Tối ưu\n({optimal_vertex[0]:.2f}, {optimal_vertex[1]:.2f})', fontsize=9, color='darkgreen', fontweight='bold', zorder=8)
+        ax.plot(optimal_vertex[0], optimal_vertex[1], '*', color='#f59e0b', markersize=24,
+                mec='#b45309', mew=1.3, label='Điểm tối ưu', zorder=7)
+        ax.annotate(
+            f'Tối ưu ({_c0(optimal_vertex[0]):.2f}, {_c0(optimal_vertex[1]):.2f})',
+            xy=(optimal_vertex[0], optimal_vertex[1]),
+            xytext=(8, -14), textcoords='offset points',
+            fontsize=9.5, color='#166534', fontweight='bold', zorder=8,
+            bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#bbf7d0', alpha=0.9),
+        )
 
-    ax.axhline(0, color='black', linewidth=0.7, zorder=0)
-    ax.axvline(0, color='black', linewidth=0.7, zorder=0)
-    ax.grid(True, which='both', linestyle=':', linewidth=0.5, color='lightgray', zorder=-1)
+    ax.axhline(0, color='#475569', linewidth=1.0, zorder=0)
+    ax.axvline(0, color='#475569', linewidth=1.0, zorder=0)
+    ax.grid(True, which='both', linestyle='-', linewidth=0.6, color='#e2e8f0', zorder=-1)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
+    for s in ('left', 'bottom'):
+        ax.spines[s].set_color('#cbd5e1')
 
     # Sử dụng tên biến được truyền vào
-    ax.set_xlabel(f"${variable_names[0]}$", fontsize=14)
-    ax.set_ylabel(f"${variable_names[1]}$", fontsize=14)
+    ax.set_xlabel(f"${variable_names[0]}$", fontsize=14, color='#334155')
+    ax.set_ylabel(f"${variable_names[1]}$", fontsize=14, color='#334155')
+    ax.tick_params(colors='#64748b')
 
     handles, labels = ax.get_legend_handles_labels()
     if handles:
@@ -183,7 +202,8 @@ def _plot_feasible_region(
         for handle, label_text in zip(handles, labels):
             if label_text not in unique_labels_dict:
                 unique_labels_dict[label_text] = handle
-        ax.legend(unique_labels_dict.values(), unique_labels_dict.keys(), fontsize=9, loc='upper right', framealpha=0.7)
+        ax.legend(unique_labels_dict.values(), unique_labels_dict.keys(), fontsize=9,
+                  loc='upper right', framealpha=0.95, edgecolor='#e2e8f0', fancybox=True)
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
@@ -315,19 +335,22 @@ def solve_with_geometric_method(problem_data: Dict[str, Any]) -> Tuple[Optional[
                 x_intercept = r / c[0]
                 axis_intercept_points.append(np.array([x_intercept, 0]))
         
-        # Kết hợp các điểm giao và điểm (0,0)
-        candidate_points = intersection_points + axis_intercept_points
-        # Thêm (0,0) nếu nó chưa có và là một điểm cần xét (ví dụ nếu các ràng buộc phi âm không tường minh)
-        # Tuy nhiên, nên dựa vào việc (0,0) có thỏa mãn các ràng buộc không
-        # candidate_points.append(np.array([0,0])) # Sẽ được lọc bởi is_feasible
+        # Kết hợp các điểm giao và điểm gốc (0,0). Gốc toạ độ luôn là ứng viên đỉnh
+        # (giao của hai trục x1=0, x2=0) và sẽ được lọc bởi kiểm tra khả thi bên dưới.
+        candidate_points = intersection_points + axis_intercept_points + [np.array([0.0, 0.0])]
 
         feasible_vertices = []
         # Lọc các điểm ứng viên để tìm các đỉnh khả thi
         if candidate_points:
             for point in candidate_points:
                 x1_p, x2_p = point
-                is_feasible_point = True
+                # Ràng buộc dấu (phi âm) x1>=0, x2>=0 LUÔN áp dụng cho QHTT dạng chuẩn,
+                # kể cả khi không được nhập tường minh. Bỏ qua điểm có toạ độ âm
+                # (đây là lỗi cũ: điểm như (-1;0) từng bị nhận nhầm là đỉnh khả thi).
+                is_feasible_point = (x1_p >= -1e-9 and x2_p >= -1e-9)
                 for constr_check in constraints_for_logic_and_plot:
+                    if not is_feasible_point:
+                        break
                     check_val = constr_check["coefficients"][0] * x1_p + constr_check["coefficients"][1] * x2_p
                     op_check, rhs_check = constr_check["type"], constr_check["rhs"]
                     epsilon_feas = 1e-9 # Ngưỡng cho việc kiểm tra khả thi
@@ -377,10 +400,12 @@ def solve_with_geometric_method(problem_data: Dict[str, Any]) -> Tuple[Optional[
         optimal_vertex = None
         epsilon_obj_compare = 1e-9
 
+        vertex_evals = []  # (label, x1, x2, z) cho bảng trình bày từng bước
         if feasible_vertices:
             logs.append("\n--- Evaluating objective function at each feasible vertex ---")
             for vertex_idx, vertex_val in enumerate(feasible_vertices):
                 current_value = np.dot(objective_coeffs_np, vertex_val)
+                vertex_evals.append((chr(65 + vertex_idx), float(vertex_val[0]), float(vertex_val[1]), float(current_value)))
                 logs.append(f"Value at Vertex {chr(65+vertex_idx)} ({vertex_val[0]:.2f}, {vertex_val[1]:.2f}) is Z = {current_value:.2f}")
 
                 if optimal_vertex is None: # Gán lần đầu
@@ -458,6 +483,58 @@ def solve_with_geometric_method(problem_data: Dict[str, Any]) -> Tuple[Optional[
             return {"status": "Unbounded", "message": "The objective function can be improved indefinitely.", "plot_image_base64": plot_image_base64_str}, logs
 
         if optimal_vertex is not None and best_value is not None:
+            # --- Bảng trình bày từng bước (chuẩn lecture §5: thế toạ độ các đỉnh) ---
+            def _g(v):
+                # Phân số cho gọn, đúng chuẩn lecture (vd 16/3 thay vì 5,33333)
+                from fractions import Fraction
+                if abs(v) < 1e-9:
+                    return "0"
+                fr = Fraction(float(v)).limit_denominator(1000)
+                if fr.denominator == 1:
+                    return str(fr.numerator)
+                sign = "-" if fr < 0 else ""
+                return f"{sign}\\frac{{{abs(fr.numerator)}}}{{{fr.denominator}}}"
+            def _vf(name):  # x1 -> x_{1} cho LaTeX
+                import re as _re
+                m = _re.match(r"^([a-zA-Z]+)(\d+)$", str(name))
+                return f"{m.group(1)}_{{{m.group(2)}}}" if m else str(name)
+            v1, v2 = _vf(variable_names[0]), _vf(variable_names[1])
+            c1, c2 = objective_coeffs_list[0], objective_coeffs_list[1]
+            opt_label = None
+            best_diff = None
+            for (lbl, xx, yy, zz) in vertex_evals:
+                d = abs(zz - best_value)
+                if best_diff is None or d < best_diff:
+                    best_diff, opt_label = d, lbl
+            step_md = []
+            obj_word = "lớn nhất" if objective_type == "maximize" else "nhỏ nhất"
+            step_md.append(
+                f"**Phương pháp hình học** — tính giá trị hàm mục tiêu "
+                f"$z = {_g(c1)}{v1} + {_g(c2)}{v2}$ tại từng đỉnh của miền nghiệm, "
+                f"rồi chọn đỉnh cho $z$ {obj_word}."
+            )
+            if vertex_evals:
+                labels = " & ".join(lbl for (lbl, *_ ) in vertex_evals)
+                coords = " & ".join(f"({_g(xx)};\\, {_g(yy)})" for (_l, xx, yy, _z) in vertex_evals)
+                zvals = " & ".join(_g(zz) for (*_p, zz) in vertex_evals)
+                ncol = "c" * len(vertex_evals)
+                # Lưu ý: KHÔNG đặt chữ tiếng Việt (vd "Đỉnh") trong math mode — KaTeX
+                # thiếu metrics cho một số dấu (ví dụ "ỉ"). Nhãn cột là A,B,C,...; ô
+                # góc trên-trái để trống, mô tả "đỉnh" đã nằm ở câu dẫn phía trên.
+                table = (
+                    "\\[\n\\begin{array}{c|" + ncol + "}\n"
+                    f" & {labels} \\\\\n\\hline\n"
+                    f"({v1};\\, {v2}) & {coords} \\\\\n"
+                    f"z & {zvals} \\\\\n"
+                    "\\end{array}\n\\]"
+                )
+                step_md.append(table)
+            step_md.append(
+                f"Đỉnh tối ưu là $\\mathbf{{{opt_label or '?'}}}"
+                f"({_g(float(optimal_vertex[0]))};\\, {_g(float(optimal_vertex[1]))})$ "
+                f"$\\Rightarrow$ **Giá trị tối ưu:** $z^{{*}} = {_g(float(best_value))}$"
+            )
+
             solution_dict = {
                 "status": "Optimal",
                 "objective_value": best_value,
@@ -465,7 +542,8 @@ def solve_with_geometric_method(problem_data: Dict[str, Any]) -> Tuple[Optional[
                     variable_names[0]: optimal_vertex[0],
                     variable_names[1]: optimal_vertex[1]
                 },
-                "plot_image_base64": plot_image_base64_str
+                "plot_image_base64": plot_image_base64_str,
+                "step_by_step_md": step_md,
             }
             logs.append(f"\nOptimal solution found at ({optimal_vertex[0]:.2f}, {optimal_vertex[1]:.2f}) with objective value {best_value:.2f}")
             return solution_dict, logs

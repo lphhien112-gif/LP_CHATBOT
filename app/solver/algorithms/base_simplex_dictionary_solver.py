@@ -126,17 +126,39 @@ class BaseSimplexDictionarySolver(ABC):
 
     def _format_var_latex(self, var_name: str) -> str:
         import re
-        match = re.match(r"^([a-zA-Z]+)(\d+)$", var_name)
+        name = var_name
+        # Bỏ hậu tố nội bộ (_aux, _bt, …) khi HIỂN THỊ. Nếu không, các biến như
+        # "x0_aux", "w1_aux" sẽ lọt ra dạng thô và KaTeX render sai (x0 dưới chỉ số 'a'…).
+        for suf in ("_aux", "_bt", "_dp2p", "_dual", "_obj"):
+            if name.endswith(suf):
+                name = name[: -len(suf)]
+                break
+        match = re.match(r"^([a-zA-Z]+)(\d+)$", name)
         if match:
             return f"{match.group(1)}_{{{match.group(2)}}}"
-        return var_name
+        return name
 
-    def _format_expr_latex(self, expr_dict: Dict[str, float], highlight_var: Optional[str] = None) -> str:
+    def _num(self, v: float) -> str:
+        """Định dạng số cho LaTeX: số nguyên hoặc PHÂN SỐ \\frac{a}{b} (khớp chuẩn
+        lecture, tránh thập phân dài như 0,333333). Trả về có dấu cho số âm."""
+        from fractions import Fraction
+        if abs(v) < 1e-9:
+            return "0"
+        fr = Fraction(v).limit_denominator(1000)
+        if fr.denominator == 1:
+            return str(fr.numerator)
+        sign = "-" if fr < 0 else ""
+        return f"{sign}\\frac{{{abs(fr.numerator)}}}{{{fr.denominator}}}"
+
+    def _format_expr_latex(self, expr_dict: Dict[str, float], highlight_var: Optional[str] = None,
+                           box_var: Optional[str] = None) -> str:
+        """highlight_var: đặt mũi tên ↓ trên biến (biến vào, dòng z).
+        box_var: khoanh ô quanh số hạng của biến đó (phần tử xoay, ở dòng biến ra)."""
         parts = []
         const_val = expr_dict.get('const', 0.0)
-        
+
         if abs(const_val) > self.epsilon or not any(abs(val) > self.epsilon for name, val in expr_dict.items() if name != 'const'):
-            parts.append(f"{const_val:g}".replace('.', ','))
+            parts.append(self._num(const_val))
 
         sorted_vars = sorted(
             [var for var in expr_dict if var != 'const' and abs(expr_dict[var]) > self.epsilon],
@@ -147,30 +169,30 @@ class BaseSimplexDictionarySolver(ABC):
             coeff = expr_dict[var_name]
             abs_coeff = abs(coeff)
             current_sign = "-" if coeff < 0 else "+"
-            
+
             formatted_var = self._format_var_latex(var_name)
             is_highlight = (highlight_var and var_name == highlight_var)
-            
-            coeff_str = f"{abs_coeff:g}".replace('.', ',')
-            
-            term_str = ""
+
+            coeff_str = self._num(abs_coeff)
+
+            # Mũi tên ↓ (biến vào) đặt CHỈ TRÊN BIẾN, không trùm cả hệ số — đúng
+            # như cách lecture đánh dấu (↓ phía trên x_j, hệ số đứng ngoài).
+            var_disp = f"\\overset{{\\downarrow}}{{{formatted_var}}}" if is_highlight else formatted_var
+
             if abs(abs_coeff - 1.0) < self.epsilon:
-                term_str = formatted_var
+                term_str = var_disp
             else:
-                term_str = f"{coeff_str}{formatted_var}"
+                term_str = f"{coeff_str}{var_disp}"
+
+            # Khoanh ô phần tử xoay (giao của cột biến vào và dòng biến ra)
+            if box_var and var_name == box_var:
+                term_str = f"\\boxed{{{term_str}}}"
 
             if not parts or (len(parts) == 1 and parts[0] in ["0", "0,0"]):
                  sign_str = current_sign if current_sign == "-" else ""
-                 if is_highlight:
-                     # Mũi tên ↓ đặt trực tiếp lên biến (không phải dấu -)
-                     term_str = f"\\overset{{\\downarrow}}{{{term_str}}}"
-                 
                  parts = [f"{sign_str}{term_str}".strip()]
             else:
                 sign_str = current_sign
-                if is_highlight:
-                    # Mũi tên ↓ trực tiếp trên biến, dấu ± riêng
-                    term_str = f"\\overset{{\\downarrow}}{{{term_str}}}"
                 parts.append(f" {sign_str} {term_str}")
         
         if not parts: return "0"
@@ -191,17 +213,20 @@ class BaseSimplexDictionarySolver(ABC):
         }
         return mapping.get(self.current_objective_key, 'z')
 
-    def _generate_tableau_md(self, phase_info: Optional[str] = None, entering_var: Optional[str] = None, leaving_var: Optional[str] = None):
+    def _generate_tableau_md(self, phase_info: Optional[str] = None, entering_var: Optional[str] = None,
+                             leaving_var: Optional[str] = None, entering_arrow: bool = True):
         """Tạo bảng Simplex Tableau dạng Markdown/LaTeX từ Dictionary hiện tại.
-        Hỗ trợ đánh dấu biến vào (entering) và biến ra (leaving).
-        """
+        Hỗ trợ đánh dấu biến vào (↓ trên dòng z), biến ra (← + khoanh ô phần tử xoay).
+        entering_arrow=False: KHÔNG vẽ ↓ trên dòng z (dùng cho Pha 1 — nơi biến vào
+        được chọn theo dòng biến ra, không theo dòng mục tiêu)."""
         md = "\n\\[\n\\begin{array}{rrl}\n"
-        
+
         # Dòng mục tiêu
         obj_key = self.current_objective_key
         obj_display = self._get_objective_display_name()
+        z_highlight = entering_var if entering_arrow else None
         if obj_key in self.dictionary:
-            base_expr_str = self._format_expr_latex(self.dictionary[obj_key], highlight_var=entering_var)
+            base_expr_str = self._format_expr_latex(self.dictionary[obj_key], highlight_var=z_highlight)
             
             md += f"& {obj_display} &= {base_expr_str} \\\\\n"
             md += "\\hline\n"
@@ -218,21 +243,45 @@ class BaseSimplexDictionarySolver(ABC):
         ratio_details = getattr(self, 'latest_ratio_details', {}) if entering_var else {}
 
         for bv in sorted_basic:
-            expr_str = self._format_expr_latex(self.dictionary[bv])
+            is_leaving = leaving_var and bv == leaving_var
+            # Dòng biến ra: khoanh ô phần tử xoay (hệ số của biến vào trong dòng này)
+            if is_leaving and entering_var:
+                expr_str = self._format_expr_latex(self.dictionary[bv], box_var=entering_var)
+            else:
+                expr_str = self._format_expr_latex(self.dictionary[bv])
             formatted_bv = self._format_var_latex(bv)
-            prefix = "\\leftarrow" if (leaving_var and bv == leaving_var) else ""
+            prefix = "\\leftarrow" if is_leaving else ""
             
             ratio_str = ""
             if bv in ratio_details:
                 const_val, coeff_val, ratio_val = ratio_details[bv]
-                const_s = f"{const_val:g}".replace('.', ',')
-                coeff_s = f"{coeff_val:g}".replace('.', ',')
-                ratio_s = f"{ratio_val:g}".replace('.', ',')
-                ratio_str = f" \\quad \\frac{{{const_s}}}{{{coeff_s}}} = {ratio_s}"
+                ratio_str = f" \\quad \\frac{{{self._num(const_val)}}}{{{self._num(coeff_val)}}} = {self._num(ratio_val)}"
                 
             md += f"{prefix} & {formatted_bv} &= {expr_str}{ratio_str} \\\\\n"
             
         md += "\\end{array}\n\\]\n"
+        # Ghi chú tỉ số đối ngẫu (nếu vừa chọn biến vào bằng dual ratio test)
+        dual_note = getattr(self, "latest_dual_ratio_note", None)
+        if dual_note and leaving_var:
+            md += f"\n{dual_note}\n"
+        self.latest_dual_ratio_note = None  # clear để không hiện lại ở bảng sau
+
+        # Nhãn ĐIỂM hiện tại (nghiệm cơ sở) — liên kết đại số ↔ hình học. Chỉ hiện khi
+        # từ vựng KHẢ THI (mọi b_i ≥ 0) và bài ≤ 3 biến quyết định.
+        dvs = [v for v in self.decision_vars_names if v in self.all_vars_ordered]
+        if 2 <= len(dvs) <= 3:
+            feasible = all(
+                self.dictionary.get(bv, {}).get('const', 0.0) >= -1e-6
+                for bv in self.basic_vars if bv != obj_key
+            )
+            if feasible:
+                coords = ", ".join(
+                    self._num(self.dictionary.get(v, {}).get('const', 0.0) if v in self.basic_vars else 0.0)
+                    for v in dvs
+                )
+                vars_lbl = ", ".join(self._format_var_latex(v) for v in dvs)
+                md += f"\n→ Nghiệm cơ sở hiện tại: $({vars_lbl}) = ({coords})$\n"
+
         self.step_by_step_md.append(md)
 
 
@@ -304,7 +353,15 @@ class BaseSimplexDictionarySolver(ABC):
         return leaving
 
     def _find_entering_var_phase1(self, leaving_var: str) -> Optional[str]:
-        """Pha 1: Chọn biến vào cho leaving_var đã chọn (Bland)."""
+        """Pha 1: Chọn biến vào cho leaving_var đã chọn (Bland).
+
+        leaving_var là biến cơ sở có hằng số ÂM (bất khả thi). Trong dạng từ vựng
+        x_B = b + Σ ā·x_N, để kéo x_B (đang < 0) tăng về ≥ 0 ta phải tăng một biến
+        phi cơ sở có hệ số ā DƯƠNG trong hàng đó. Nếu mọi hệ số ≤ 0 thì hàng này
+        không bao giờ ≥ 0 được → bài toán thực sự bất khả thi.
+        (Trước đây hàm chọn hệ số âm — sai dấu — khiến mọi ràng buộc '>=' / '==',
+        vốn tạo hàng hệ số dương sau chuẩn hóa, bị báo Infeasible nhầm.)
+        """
         leaving_expr = self.dictionary.get(leaving_var)
         if leaving_expr is None:
             return None
@@ -313,7 +370,7 @@ class BaseSimplexDictionarySolver(ABC):
             if var_name not in self.all_vars_ordered:
                 continue
             coeff = leaving_expr.get(var_name, 0.0)
-            if coeff < -self.epsilon:
+            if coeff > self.epsilon:
                 candidates.append(var_name)
         if not candidates:
             self._log(f"Phase 1 ERROR: No entering var for {leaving_var}. Infeasible.")
@@ -326,6 +383,12 @@ class BaseSimplexDictionarySolver(ABC):
     def _run_phase1_simple(self, max_phase1_iterations: int, phase_label: str = "Phase 1") -> str:
         """Chạy Pha 1 đơn giản: lặp xoay đến khi mọi b_i >= 0."""
         self._log(f"--- Starting {phase_label} ---")
+        # Nhãn + giải thích Pha 1 cho người học (vì sao có hằng số âm)
+        self.step_by_step_md.append(
+            "### Pha 1 — Khôi phục khả thi\n"
+            "Ràng buộc dạng $\\ge$ (hoặc $=$) làm một số hằng số vế phải bị **âm** "
+            "(từ vựng chưa khả thi). Ta xoay để đưa mọi biến cơ sở $\\ge 0$ trước khi tối ưu."
+        )
         phase1_iter = 0
         while phase1_iter < max_phase1_iterations:
             phase1_iter += 1
@@ -334,17 +397,25 @@ class BaseSimplexDictionarySolver(ABC):
 
             leaving = self._find_leaving_var_phase1()
             if leaving is None:
-                self._generate_tableau_md(phase_info=phase_label)
+                # Đã khả thi — KHÔNG in lại bảng (tránh trùng); Pha 2 sẽ hiển thị bảng
+                # này kèm mũi tên biến vào. Chỉ ghi chú chuyển pha.
+                self.step_by_step_md.append(
+                    "✅ Mọi hằng số vế phải $\\ge 0$ — từ vựng đã **khả thi**. "
+                    "Chuyển sang **Pha 2 (tối ưu hóa)**."
+                )
                 self._log(f"{phase_label}: Dictionary is feasible.")
                 return "Feasible"
 
             entering = self._find_entering_var_phase1(leaving)
             if entering is None:
-                self._generate_tableau_md(phase_info=phase_label, leaving_var=leaving)
+                self._generate_tableau_md(phase_info=phase_label, leaving_var=leaving, entering_arrow=False)
                 self._log(f"{phase_label}: Infeasible.")
                 return "Infeasible"
 
-            self._generate_tableau_md(phase_info=phase_label, entering_var=entering, leaving_var=leaving)
+            # Pha 1: KHÔNG vẽ ↓ trên dòng z (biến vào chọn theo dòng biến ra),
+            # chỉ ← biến ra + khoanh ô phần tử xoay.
+            self._generate_tableau_md(phase_info=phase_label, entering_var=entering,
+                                      leaving_var=leaving, entering_arrow=False)
 
             if not self._perform_pivot(entering, leaving):
                 return "ErrorInPivot"
@@ -372,12 +443,21 @@ class BaseSimplexDictionarySolver(ABC):
         return leaving
 
     def _select_entering_var_dual(self, leaving_var: str) -> Optional[str]:
-        """Dual Simplex: biến vào = min{G_j / a_ij_original} với G >= 0 và a_ij_original > 0.
-        Trong dict, coeff = -a_ij_original, nên cần coeff < 0."""
+        """Dual Simplex: chọn biến vào theo ratio test đối ngẫu = min{ G_j / ā_ij }.
+
+        Trong dạng từ vựng x_B = b + Σ ā·x_N với leaving_var có b < 0, phép xoay
+        (_perform_pivot chia cho -ā) cho giá trị biến vào = b/(-ā). Để biến vào ≥ 0
+        (khôi phục khả thi) cần ā DƯƠNG. Ratio test G_j/ā_ij (với ā_ij > 0, G_j ≥ 0)
+        giữ tính dual-feasible (mọi hệ số mục tiêu ≥ 0). Nếu không có ā_ij > 0 nào
+        thì bài toán thực sự VÔ NGHIỆM.
+        (Trước đây dùng ā < 0 — sai dấu, mâu thuẫn với chính docstring lớp con —
+        khiến mọi ràng buộc '>=' / '==' bị báo Infeasible nhầm.)
+        """
         leaving_expr = self.dictionary.get(leaving_var, {})
         obj_expr = self.dictionary.get(self.current_objective_key, {})
         best_ratio = float('inf')
         entering: Optional[str] = None
+        ratio_list = []  # (var, g_j, a_ij, ratio) cho các cột đủ điều kiện — để hiển thị
 
         sorted_nb = sorted(
             [nb for nb in self.non_basic_vars if nb in self.all_vars_ordered],
@@ -386,14 +466,25 @@ class BaseSimplexDictionarySolver(ABC):
         for var_name in sorted_nb:
             a_ij = leaving_expr.get(var_name, 0.0)
             g_j = obj_expr.get(var_name, 0.0)
-            # coeff < 0 trong dict ↔ a_ij_original > 0
-            if a_ij < -self.epsilon and g_j > -self.epsilon:
-                ratio = g_j / (-a_ij)
+            # ā_ij > 0 trong dict là điều kiện để phép xoay đưa biến vào về giá trị ≥ 0
+            if a_ij > self.epsilon and g_j > -self.epsilon:
+                ratio = g_j / a_ij
+                ratio_list.append((var_name, g_j, a_ij, ratio))
                 if ratio < best_ratio - self.epsilon:
                     best_ratio = ratio
                     entering = var_name
                 elif abs(ratio - best_ratio) < self.epsilon and entering is None:
                     entering = var_name
+
+        # Lưu ghi chú tỉ số đối ngẫu để _generate_tableau_md hiển thị (chuẩn lecture §12)
+        if ratio_list and entering:
+            terms = []
+            for v, gj, aij, r in ratio_list:
+                mark = "\\;(\\to)" if v == entering else ""
+                terms.append(f"{self._format_var_latex(v)}: \\frac{{{self._num(gj)}}}{{{self._num(aij)}}}={self._num(r)}{mark}")
+            self.latest_dual_ratio_note = (
+                "Tỉ số đối ngẫu $G_j/\\bar a_{rj}$ (chọn nhỏ nhất): $" + ",\\quad ".join(terms) + "$"
+            )
 
         if entering:
             self._log(f"Dual — Biến vào: {entering} (ratio = {best_ratio:.4g})")
@@ -602,17 +693,38 @@ class BaseSimplexDictionarySolver(ABC):
                 for var in self.basic_vars:
                     if var in self.all_vars_ordered and var != self.current_objective_key:
                         val = self.dictionary.get(var, {}).get('const', 0.0)
-                        val_s = f"{val:g}".replace('.', ',')
-                        basic_vals.append(f"{self._format_var_latex(var)} = {val_s}")
+                        basic_vals.append(f"{self._format_var_latex(var)} = {self._num(val)}")
                 
                 all_vals_str = ", ".join(non_basic_zeros + basic_vals)
-                
-                obj_val_s = "0"
-                if solution["objective_value"] is not None:
-                    obj_val_s = f"{solution['objective_value']:g}".replace('.', ',')
-                    
-                md  = f"Cho $\\quad {all_vals_str}$\n\n"
-                md += f"**Giá trị tối ưu:** $z = {obj_val_s}$\n\n"
+
+                # Phát hiện bài toán gốc có phải MAX không (đã được wrapper gán vào
+                # problem_data trước khi tạo solver). Vì solver luôn giải dạng -min,
+                # giá trị trong từ điển là z(P') = -z*(P); cần quy đổi ngược cho MAX
+                # đúng như cách lecture trình bày (z(P') = -18 ⇒ z*(P) = 18).
+                orig_type = str(self.problem_data.get("objective_type_before_standardization", "")).strip().lower()
+                was_maximized = orig_type in ("maximize", "max")
+
+                _fmt = self._num
+
+                raw_obj = solution["objective_value"] if solution["objective_value"] is not None else 0.0
+                zstar = -raw_obj if was_maximized else raw_obj
+
+                # Đọc nghiệm từ từ vựng tối ưu (gán biến phi cơ sở = 0)
+                md = f"Chọn $\\quad {all_vals_str}$\n\n"
+                if was_maximized:
+                    md += (f"Giá trị mục tiêu của $(P')$: $z = {_fmt(raw_obj)}$ "
+                           f"$\\Rightarrow$ bài gốc (MAX): $z^{{*}} = {_fmt(zstar)}$\n\n")
+
+                # Kết luận theo BIẾN QUYẾT ĐỊNH (đúng chuẩn lecture: "Vậy, nghiệm tối ưu là ...")
+                decision_str = ", ".join(
+                    f"{self._format_var_latex(v)} = {_fmt(val)}"
+                    for v, val in solution.get("variables", {}).items() if not str(v).startswith('_')
+                )
+                if decision_str:
+                    md += (f"**Vậy, nghiệm tối ưu là** $\\; {decision_str}$ "
+                           f"**và giá trị tối ưu** $z^{{*}} = {_fmt(zstar)}$.\n\n")
+                else:
+                    md += f"**Giá trị tối ưu:** $z^{{*}} = {_fmt(zstar)}$\n\n"
                 self.step_by_step_md.append(md)
 
 

@@ -29,6 +29,12 @@ def setup_logging():
     )
 
     # Handler 1: Console
+    # Đảm bảo console in được Unicode (tiếng Việt). Trên Windows, stdout mặc định
+    # dùng cp1252 và sẽ ném UnicodeEncodeError khi log có ký tự tiếng Việt.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(settings.LOG_LEVEL)
     console_handler.setFormatter(formatter)

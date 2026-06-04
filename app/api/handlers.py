@@ -173,10 +173,18 @@ async def solve_problem_api(request: SolveRequest = Body(...)): # Đổi tên h�
         )
         logs.extend(solver_logs)
         
-        if solution:
+        # Lưu ý: mọi solver đều trả về một dict (kể cả khi Infeasible/Unbounded/Error),
+        # nên không thể chỉ kiểm tra `if solution:` (dict luôn truthy). Phải kiểm tra
+        # trường 'status' để phân biệt nghiệm tối ưu với các trạng thái còn lại.
+        status = solution.get("status") if solution else None
+        if status == "Optimal":
             return SolveResponse(solution=solution, logs=logs, message=f"Problem solved successfully by {solver_name_req}.")
+        elif solution is not None:
+            # Solver chạy xong nhưng không có nghiệm tối ưu (Infeasible/Unbounded/Degenerate/Error...)
+            return SolveResponse(solution=solution, logs=logs, message=f"Solver {solver_name_req} finished with status '{status}'.")
         else:
-            return SolveResponse(solution=None, logs=logs, message=f"Solver {solver_name_req} failed to find a solution or problem is infeasible/unbounded.")
+            # Solver thực sự thất bại / crash và trả về None
+            return SolveResponse(solution=None, logs=logs, message=f"Solver {solver_name_req} failed to produce a result.")
 
     # Trường hợp không thể xảy ra nếu logic ở trên đúng
     logger.error("Unexpected state in API handler: problem_dict_format_a is None but no exception was raised.")

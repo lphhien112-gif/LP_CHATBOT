@@ -2,36 +2,38 @@
 
 import logging
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import HTMLResponse, JSONResponse # Thêm JSONResponse
-from fastapi.templating import Jinja2Templates
-from pathlib import Path
+from fastapi.responses import JSONResponse, StreamingResponse
 import json
-from typing import Dict, Optional
-from .dialog_manager import DialogManager 
+from typing import Dict
+from .dialog_manager import DialogManager
 from app.core.config import settings
 from app.core.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-
-if not TEMPLATES_DIR.exists():
-    logger.error(f"Templates directory not found at: {TEMPLATES_DIR}")
-
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
 # Loại bỏ bộ nhớ cấp ứng dụng local khi chạy Container hóa
 # Nhưng NÊN GIỮ LẠI LÀM FALLBACK cho môi trường Development Local khi Redis tắt
 active_sessions_fallback: Dict[str, DialogManager] = {}
+
+def _resolve_session_id(request: Request) -> str:
+    """Ưu tiên header 'X-Session-Id' do client (SPA) sinh ra để mỗi trình duyệt có
+    phiên riêng; nếu không có thì fallback về IP client (tương thích ngược)."""
+    client_session = request.headers.get("X-Session-Id")
+    if client_session:
+        # Chỉ giữ ký tự an toàn để tránh chèn key độc hại vào Redis
+        safe = "".join(c for c in client_session if c.isalnum() or c in "-_")[:64]
+        if safe:
+            return f"{settings.SESSION_ID_PREFIX}{safe}"
+    client_ip = request.client.host if request.client else settings.UNKNOWN_CLIENT_ID
+    return f"{settings.SESSION_ID_PREFIX}{client_ip}"
+
 
 async def get_dialog_manager(
     request: Request,
     redis_client = Depends(get_redis_client)
 ) -> DialogManager:
-    # Lấy IP hoặc định danh client làm session id đơn giản
-    client_ip = request.client.host if request.client else settings.UNKNOWN_CLIENT_ID
-    session_id = f"{settings.SESSION_ID_PREFIX}{client_ip}"
+    session_id = _resolve_session_id(request)
     
     # --- Ưu tiên 1: Redis (production) ---
     if redis_client:
@@ -75,18 +77,6 @@ async def save_session_to_redis(dm: DialogManager, redis_client):
         # Cập nhật state vào fallback ram map
         active_sessions_fallback[dm.user_id] = dm
 
-@router.get("/chat", response_class=HTMLResponse, summary="Giao diện chat với LP Chatbot")
-async def get_chat_interface(request: Request):
-    logger.info(f"Serving chat interface from template directory: {TEMPLATES_DIR}")
-    index_template_path = TEMPLATES_DIR / "index.html"
-    if not index_template_path.is_file():
-        logger.error(f"index.html not found in {TEMPLATES_DIR}")
-        return HTMLResponse(content="<h1>Lỗi: Không tìm thấy tệp index.html</h1>", status_code=500)
-        
-    return templates.TemplateResponse(request, "index.html")
-
-from fastapi.responses import StreamingResponse
-
 # !!! QUAN TRỌNG: Đổi send_message_to_bot thành async def để hỗ trợ Streaming !!!
 @router.post("/send_message", summary="Gửi tin nhắn đến chatbot (Streaming SSE)")
 async def send_message_to_bot(
@@ -113,6 +103,84 @@ async def send_message_to_bot(
             await save_session_to_redis(dm, redis_client)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@router.post("/solve_structured", summary="Giải bài toán nhập từ FORM có cấu trúc (Streaming SSE)")
+async def solve_structured(
+    request: Request,
+    dm: DialogManager = Depends(get_dialog_manager),
+    redis_client = Depends(get_redis_client)
+):
+    """Nhận bài toán dạng JSON có cấu trúc từ form, đặt làm bài hiện tại rồi stream
+    lời giải qua cùng pipeline với chat (tableau + giải thích)."""
+    body = await request.json()
+    problem = body.get("problem", {})
+    solver = body.get("solver", "simple_dictionary") or "simple_dictionary"
+
+    try:
+        internal = DialogManager.build_internal_from_structured(problem)
+    except Exception as e:
+        logger.warning(f"solve_structured: dữ liệu không hợp lệ: {e}")
+        async def err_gen():
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Dữ liệu bài toán không hợp lệ: {e}'})}\n\n"
+        return StreamingResponse(err_gen(), media_type="text/event-stream")
+
+    dm.state["current_problem_definition"] = internal
+    dm.state["expectation"] = None
+
+    async def event_generator():
+        try:
+            async for event in dm._solve_current_problem(solver):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            logger.exception(f"Lỗi khi giải bài toán có cấu trúc: {e}")
+            yield f"data: {json.dumps({'type': 'complete', 'result': {'bot_response': {'text_response': 'Xin lỗi, đã xảy ra lỗi khi giải bài toán.', 'suggestions': ['Thử lại']}}})}\n\n"
+        finally:
+            await save_session_to_redis(dm, redis_client)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/extract_image", summary="Đọc đề bài LP từ ảnh (OCR bằng vision model)")
+async def extract_image(
+    request: Request,
+    dm: DialogManager = Depends(get_dialog_manager),
+):
+    """Nhận ảnh (data URL base64), trả về văn bản đề bài để người dùng xem/sửa rồi gửi."""
+    body = await request.json()
+    image = body.get("image", "")
+    if not image or not isinstance(image, str):
+        return JSONResponse({"error": "Thiếu dữ liệu ảnh."}, status_code=400)
+    if not dm.openai_client.client:
+        return JSONResponse({"error": "Cần kết nối AI (vision) để đọc ảnh."}, status_code=503)
+    text = await dm.openai_client.extract_lp_from_image(image)
+    if not text:
+        return JSONResponse({"error": "Không đọc được đề Quy hoạch tuyến tính từ ảnh. "
+                                      "Hãy chụp rõ hơn hoặc tự nhập đề."}, status_code=422)
+    return {"text": text}
+
+
+@router.post("/practice/new", summary="Tạo một bài luyện tập mới (chế độ tutor)")
+async def practice_new(
+    dm: DialogManager = Depends(get_dialog_manager),
+    redis_client = Depends(get_redis_client)
+):
+    data = dm.new_practice_problem()
+    await save_session_to_redis(dm, redis_client)
+    return data
+
+
+@router.post("/practice/grade", summary="Chấm nghiệm sinh viên nhập cho bài luyện tập")
+async def practice_grade(
+    request: Request,
+    dm: DialogManager = Depends(get_dialog_manager),
+    redis_client = Depends(get_redis_client)
+):
+    body = await request.json()
+    answers = body.get("answers", {})
+    result = dm.grade_practice(answers)
+    await save_session_to_redis(dm, redis_client)
+    return result
+
 
 @router.post("/reset_chat_session", summary="Reset trạng thái hội thoại của chatbot cho user hiện tại")
 async def reset_session(

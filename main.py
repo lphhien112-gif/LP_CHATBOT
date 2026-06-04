@@ -63,6 +63,19 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 logger.info(f"Static files directory mounted at /{settings.STATIC_DIR}.")
 
+# -- GẮN GIAO DIỆN REACT (SPA) ĐÃ BUILD --
+# `cd frontend && npm run build` xuất ra static/app (vite base='/app/').
+# html=True để StaticFiles trả index.html tại /app/ (single-page app).
+from pathlib import Path as _Path
+_spa_dir = _Path(settings.STATIC_DIR) / "app"
+SPA_AVAILABLE = (_spa_dir / "index.html").is_file()
+if SPA_AVAILABLE:
+    app.mount("/app", StaticFiles(directory=str(_spa_dir), html=True), name="spa")
+    logger.info("React SPA mounted at /app.")
+else:
+    logger.warning("React SPA chưa được build (thiếu static/app/index.html). "
+                   "Hãy chạy: cd frontend && npm install && npm run build")
+
 
 # -- BƯỚC 4: BAO GỒM (INCLUDE) CÁC ROUTER --
 
@@ -70,21 +83,25 @@ logger.info(f"Static files directory mounted at /{settings.STATIC_DIR}.")
 app.include_router(api_router, prefix=settings.API_V1_STR, tags=["Backend API"])
 logger.info(f"Included API router with prefix: {settings.API_V1_STR}")
 
-# Bao gồm router cho giao diện web của chatbot
-# Ở đây không đặt prefix để có thể truy cập trực tiếp qua /chat
-# Điều này giúp đơn giản hóa URL trong file JavaScript (fetch('/send_message'))
+# Bao gồm router xử lý chat/SSE/luyện tập ở gốc (không prefix) để JS gọi /send_message…
 app.include_router(chatbot_web_router, tags=["Chatbot Web UI"])
 logger.info("Included Chatbot Web UI router at root.")
 
 # -- BƯỚC 5: ĐỊNH NGHĨA ENDPOINT GỐC (ROOT) --
+from fastapi.responses import HTMLResponse
+
 @app.get("/", include_in_schema=False)
 async def read_root():
-    """
-    Endpoint gốc, tự động chuyển hướng người dùng đến giao diện chat.
-    `include_in_schema=False` để ẩn nó khỏi tài liệu API.
-    """
-    logger.info(f"Root endpoint '/' accessed, redirecting to '{settings.DEFAULT_REDIRECT_URL}'.")
-    return RedirectResponse(url=settings.DEFAULT_REDIRECT_URL)
+    """Endpoint gốc: chuyển hướng tới giao diện React (/app/). Nếu SPA chưa build,
+    hiển thị hướng dẫn build thay vì lỗi 404."""
+    if SPA_AVAILABLE:
+        return RedirectResponse(url="/app/")
+    return HTMLResponse(
+        "<h2>Giao diện chưa được build</h2>"
+        "<p>Hãy chạy: <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code> "
+        "rồi tải lại trang.</p>",
+        status_code=200,
+    )
 
 
 # -- BƯỚC 6: KHỞI CHẠY SERVER (KHI CHẠY TRỰC TIẾP TỆP NÀY) --

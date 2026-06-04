@@ -45,6 +45,10 @@ class DualPrimalTwoPhaseSolver(BaseSimplexDictionarySolver):
         if not self._build_standard_dictionary(obj_coeffs=abs_coeffs):
             return False
 
+        self.step_by_step_md.append(
+            "### Pha 1 — Bài toán bổ trợ (đối ngẫu)\n"
+            "Dùng hàm mục tiêu phụ $\\sum |c_i| x_i$ và chạy đơn hình đối ngẫu để tìm từ vựng khả thi."
+        )
         self._log_dictionary(phase_info="Phase 1 — Bài toán bổ trợ (|c_i|)")
         self._generate_tableau_md(phase_info="Phase 1 — Initial")
         return True
@@ -146,6 +150,10 @@ class DualPrimalTwoPhaseSolver(BaseSimplexDictionarySolver):
                 z_expr[dv] = z_expr.get(dv, 0.0) + coeff
 
         self.dictionary[self.current_objective_key] = z_expr
+        self.step_by_step_md.append(
+            "### Pha 2 — Hàm mục tiêu gốc\n"
+            "Lắp lại hàm mục tiêu $z$ ban đầu và tối ưu bằng đơn hình (nguyên thủy)."
+        )
         self._log_dictionary(phase_info="Phase 2 — Initial (Original Objective)")
         self._generate_tableau_md(phase_info="Phase 2 — Initial")
 

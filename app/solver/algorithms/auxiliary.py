@@ -33,6 +33,11 @@ class AuxiliaryProblemSolver(BaseSimplexDictionarySolver):
         self.current_phase = 1
         self.current_objective_key = self.auxiliary_objective_key # Chuyển sang hàm mục tiêu Pha 1
         self.current_objective_type = "minimize" # Pha 1 luôn là minimize x0_aux
+        # Nhãn pha hiển thị cho người học
+        self.step_by_step_md.append(
+            "### Pha 1 — Bài toán phụ trợ\n"
+            "Thêm biến nhân tạo $x_0$, giải $\\min\\, x_0$ để tìm từ vựng khả thi."
+        )
 
         self.dictionary = {}
         self.basic_vars = [] # Sẽ chứa các w_i ban đầu
@@ -313,6 +318,11 @@ class AuxiliaryProblemSolver(BaseSimplexDictionarySolver):
 
         self.dictionary[self.current_objective_key] = z_original_expr_substituted
         self._log(f"Restored original objective '{self.current_objective_key}' for Phase 2.")
+        # Nhãn pha hiển thị cho người học
+        self.step_by_step_md.append(
+            "### Pha 2 — Hàm mục tiêu gốc\n"
+            "Bỏ biến phụ trợ $x_0$, lắp lại hàm mục tiêu $z$ và tối ưu bằng đơn hình."
+        )
         self._log_dictionary(phase_info="Phase 2 - Initial")
         self._generate_tableau_md(phase_info="Phase 2 - Initial")
 

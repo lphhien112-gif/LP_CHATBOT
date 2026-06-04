@@ -24,3 +24,8 @@ logs/
 # Ignore OS files
 .DS_Store
 Thumbs.db
+
+# Frontend: bỏ qua node_modules & build artifact (SPA được build lại trong Docker)
+frontend/node_modules/
+frontend/dist/
+static/app/

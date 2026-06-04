@@ -6,7 +6,7 @@ import logging # Added import
 from dotenv import load_dotenv
 load_dotenv()
 from app.chatbot.dialog_manager import DialogManager
-from core.logger import setup_logging
+from app.core.logger import setup_logging
 
 # Cấu hình logging để ghi vào file thay vì in console bị chồng lấn
 logging.basicConfig(

@@ -7,6 +7,16 @@ from app.nlp.data import rule_templates
 
 logger = logging.getLogger(__name__)
 
+# Canonicalises every operator the constraint regex can capture
+# (<=, >=, ==, =, <, >, ≤, ≥) into one of three forms the solver
+# understands: "<=", ">=", "==". Strict inequalities are treated as
+# their non-strict counterparts (LP has no strict feasible region).
+_OPERATOR_NORMALIZE = {
+    "<=": "<=", "≤": "<=", "<": "<=",
+    ">=": ">=", "≥": ">=", ">": ">=",
+    "==": "==", "=": "==",
+}
+
 def _expand_non_negativity_constraints(text: str) -> str:
     """
     Expands compact non-negativity constraints like "x1, x2 >= 0"
@@ -20,8 +30,11 @@ def _expand_non_negativity_constraints(text: str) -> str:
         r'((?:[a-zA-Z_][a-zA-Z0-9_]*\s*,\s*)+[a-zA-Z_][a-zA-Z0-9_]*)'
         # Group 2: Catches the operator
         r'\s*(>=|≥)\s*'
-        # Group 3: Catches the zero
-        r'(0\.?0*|0)\s*$',
+        # Group 3: Catches the zero, terminated by a separator or end-of-string.
+        # Use a lookahead (not a hard $ anchor) so the pattern also matches when
+        # the non-negativity clause is NOT the last constraint, e.g.
+        # "x1, x2 >= 0; x + y <= 5".
+        r'(0\.?0*|0)\s*(?=;|$)',
         re.IGNORECASE
     )
 
@@ -223,9 +236,9 @@ def parse_lp_problem_from_string(text: str) -> Tuple[Optional[Dict[str, Any]], L
                         return None, logs
 
                     parsed_constraints.append({
-                        "name": f"c{i+1}", 
+                        "name": f"c{i+1}",
                         "coeffs_map": lhs_coeffs,
-                        "operator": op.replace("=", "==").replace("<==", "<=").replace(">==", ">="), 
+                        "operator": _OPERATOR_NORMALIZE.get(op.strip(), op.strip()),
                         "rhs": rhs_val
                     })
                     logs.append(f"Successfully parsed constraint: {line}")
