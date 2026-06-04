@@ -1,106 +1,205 @@
-# LP_Chatbot - Trợ lý Ảo Giải Tự Động Quy Hoạch Tuyến Tính (Linear Programming)
+<div align="center">
 
-## 1. Tổng quan dự án
+# 🧮 LP_Chatbot
 
-**LP_Chatbot** là một hệ thống chatbot thông minh được thiết kế chuyên biệt để giúp người dùng giải quyết các bài toán tối ưu hóa trong lĩnh vực Quy hoạch tuyến tính (Linear Programming - LP). 
+### Trợ lý AI giải **Quy hoạch tuyến tính** — mô hình hoá & giải từng bước
 
-Hệ thống giải quyết vấn đề rào cản về mặt toán học và kỹ thuật phần mềm bằng cách cho phép người dùng nhập bài toán dưới dạng ngôn ngữ tự nhiên (Tiếng Việt hoặc Tiếng Anh). Chatbot sẽ tự động phân tích, dịch sang dạng mô hình toán học, giải bài toán từng bước và giải thích kết quả một cách trực quan, dễ hiểu.
+Nhập đề bằng **công thức · lời nói · ảnh chụp · biểu mẫu** → giải bằng **7 phương pháp** →
+trình bày **lời giải từng bước** đúng chuẩn bài giảng.
+Phần toán do **bộ giải thật** đảm nhiệm (**0 sai lệch** so với PuLP), AI chỉ lo hiểu ngôn ngữ.
 
-**Công nghệ chính sử dụng:**
-- **Backend:** FastAPI (Python)
-- **AI / NLP:** OpenAI API (GPT models) để phân tích ngôn ngữ tự nhiên
-- **LP Solver:** Các thuật toán tối ưu hóa lập trình sẵn bằng Python (Simplex, SciPy, PuLP)
-- **DevOps:** Docker, Docker Compose, GitHub Actions (CI/CD)
-- **Frontend:** HTML/Vanilla JS/Tailwind CSS kết hợp MathJax/KaTeX để hiển thị công thức LaTeX
+<br/>
 
-## 2. Các tính năng chính
+![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?logo=tailwindcss&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-79_passing-brightgreen)
+![Verified](https://img.shields.io/badge/đối_chiếu_PuLP-0_sai_lệch-success)
 
-- 🤖 **Hiểu ngôn ngữ tự nhiên:** Tiếp nhận và phân tích đề bài từ ngôn ngữ nói chuyện thông thường.
-- 📐 **Mô hình hóa bài toán LP:** Tự động trích xuất Hàm mục tiêu (Objective Function) và Các ràng buộc (Constraints).
-- ⚙️ **Giải đa thuật toán:** Tích hợp nhiều phương pháp giải như Đơn hình (Simplex - từ điển, Bland), Đồ thị (Geometric), PuLP CBC.
-- 📊 **Hiển thị chi tiết (Step-by-step):** Trình bày các bước biến đổi hệ phương trình (Dictionary format) và kiểm tra tỉ số bằng công thức Toán học chuẩn LaTeX.
-- 💡 **Giải thích kết quả AI:** Tóm tắt và phân tích ý nghĩa của kết quả tối ưu bằng LLM một cách thân thiện.
-- ⚡ **Streaming thời gian thực:** Phản hồi mượt mà qua luồng dữ liệu Server-Sent Events (SSE).
+<br/>
 
-## 3. Kiến trúc hệ thống (Tóm tắt)
+![Demo LP_Chatbot — giải Quy hoạch tuyến tính từng bước](demo/assets/lp_chatbot_demo.gif)
 
-Hệ thống được thiết kế theo hướng dịch vụ (Service-Oriented) với các thành phần chính:
-- **FastAPI Backend (`main.py`):** Xử lý giao tiếp HTTP/SSE và quản lý vòng đời ứng dụng.
-- **Dialog Manager (`app/chatbot/dialog_manager.py`):** Đóng vai trò làm bộ não điều phối luồng trò chuyện, lưu trữ bối cảnh (context hội thoại) và gọi các module khác.
-- **NLP Processing (`app/nlp/`):** Sử dụng LLM Prompt Engineering chuyên sâu kết nối qua OpenAI API để phân tách text thành định dạng JSON chuẩn bị cho Solver.
-- **LP Solver (`app/solver/`):** Cốt lõi toán học, nhận bài toán đã được bóc tách và áp dụng các thuật toán bản địa để tìm nghiệm thực sự.
+▶️ **[Xem video demo đầy đủ (MP4, ~2 phút)](demo/assets/lp_chatbot_demo.mp4)**
 
-## 4. Hướng dẫn cài đặt nhanh (Quick Start)
+</div>
 
-Yêu cầu tiên quyết:
-- Có sẵn key `OPENAI_API_KEY`.
-- Clone mã nguồn về máy: `git clone <repo-url> && cd LP_CHATBOT`
-- Copy file `.env.example` thành `.env` và điền cấu hình các biến môi trường (Ví dụ `OPENAI_API_KEY`).
+---
 
-### Cách 1: Chạy bằng Docker (Khuyên dùng)
+## ✨ Tính năng nổi bật
 
-Hệ thống đã được đóng gói sẵn với Docker Compose dành cho môi trường Productive/Testing nhanh.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <b>📐 Phương pháp hình học</b><br/>
+      <sub>Vẽ miền nghiệm &amp; điểm tối ưu (bài 2 biến).</sub><br/>
+      <img src="demo/assets/feat_geometric.gif" width="100%"/>
+    </td>
+    <td width="50%" valign="top">
+      <b>💬 Nhập bằng lời (NLP)</b><br/>
+      <sub>AI tự mô hình hoá bài toán thực tế.</sub><br/>
+      <img src="demo/assets/feat_nlp.gif" width="100%"/>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <b>📷 Đọc đề từ ảnh (OCR)</b><br/>
+      <sub>Tải ảnh đề — AI đọc nội dung rồi giải.</sub><br/>
+      <img src="demo/assets/feat_ocr.gif" width="100%"/>
+    </td>
+    <td width="50%" valign="top">
+      <b>🎓 Luyện tập có chấm điểm</b><br/>
+      <sub>Tự sinh đề, tự giải, theo dõi tiến độ.</sub><br/>
+      <img src="demo/assets/feat_practice.gif" width="100%"/>
+    </td>
+  </tr>
+</table>
+
+> 💡 **Để video tự phát ngay trong README trên GitHub:** mở một Issue/PR mới trên github.com,
+> kéo–thả `demo/assets/lp_chatbot_demo.mp4` vào ô bình luận; GitHub sinh URL `user-attachments/...`,
+> dán URL đó thay cho link MP4 ở trên. Cách tạo lại video & GIF: xem [demo/README.md](demo/README.md).
+
+---
+
+## 🎯 Giới thiệu
+
+**LP_Chatbot** giúp người học giải các bài toán **Quy hoạch tuyến tính (Linear Programming)** mà
+không vướng hai rào cản quen thuộc: **mô hình hoá** đề thực tế và **thao tác tính toán** của
+phương pháp đơn hình.
+
+Điểm khác biệt là thiết kế **lai (hybrid)**: mô hình ngôn ngữ lớn (LLM) chỉ đảm nhiệm khâu
+*hiểu ngôn ngữ* (đọc đề, đọc ảnh, diễn giải), còn **toàn bộ phần toán do các bộ giải thật**
+(NumPy/PuLP) thực hiện — nhờ đó kết quả luôn chính xác và lời giải từng bước đúng chuẩn lớp học,
+thay vì để LLM "tự tính" và dễ sai.
+
+| | | |
+|---|---|---|
+| **7** phương pháp giải | **4** cách nhập đề | **0** sai lệch so với PuLP |
+| **79** test `pytest` đạt | **16** họ bài toán kiểm chứng | LaTeX + đồ thị trực quan |
+
+---
+
+## 🧩 Các tính năng chính
+
+- 🤖 **Hiểu ngôn ngữ tự nhiên** — tiếp nhận đề từ lời nói thông thường (Việt/Anh).
+- 📐 **Mô hình hoá tự động** — trích xuất hàm mục tiêu và ràng buộc thành mô hình LP.
+- ⚙️ **Giải đa thuật toán** — 7 phương pháp (xem bảng bên dưới), tự chọn hoặc do người dùng chỉ định.
+- 📊 **Lời giải từng bước** — trình bày dạng từ vựng (dictionary) với hệ số phân số, mũi tên biến
+  vào/ra, ô xoay và nhãn đỉnh, render bằng **KaTeX**.
+- 📷 **Nhập linh hoạt** — gõ công thức, mô tả bằng lời, **chụp/tải ảnh (OCR)** hoặc **biểu mẫu**.
+- 🎓 **Hỗ trợ học tập** — luyện tập có chấm điểm, tạo bài tập, so sánh phương pháp, giải thích thuật ngữ.
+- ⚡ **Streaming thời gian thực** — phản hồi mượt qua Server-Sent Events (SSE).
+
+### Các phương pháp giải
+
+| Phương pháp | Phạm vi áp dụng |
+|---|---|
+| Đơn hình (từ vựng, Dantzig) | Bài chuẩn |
+| Đơn hình Bland | Chống xoay vòng cho bài suy biến |
+| Hai pha (biến phụ trợ) | Khi từ vựng xuất phát chưa khả thi |
+| Đơn hình đối ngẫu | Hệ số mục tiêu ≥ 0 nhưng vế phải âm |
+| Hai pha đối ngẫu–gốc | Kết hợp đối ngẫu (Pha 1) + đơn hình (Pha 2) |
+| Hình học | Bài 2 biến — vẽ miền nghiệm, xét các đỉnh |
+| PuLP CBC | Bộ giải công nghiệp, dùng làm chuẩn đối chiếu |
+
+---
+
+## 🛠️ Công nghệ sử dụng
+
+| Lớp | Công nghệ |
+|---|---|
+| **Backend** | Python · FastAPI · NumPy · PuLP (CBC) · Matplotlib · Redis (phiên) |
+| **AI / NLP** | API tương thích OpenAI (OpenRouter) — hỗ trợ **vision** cho OCR |
+| **Frontend** | React · Vite · Tailwind CSS · KaTeX · marked |
+| **Kiểm thử** | pytest · Playwright (chụp ảnh/quay demo tự động) |
+| **DevOps** | Docker · Docker Compose |
+
+---
+
+## 🏗️ Kiến trúc hệ thống
+
+Thiết kế hướng dịch vụ; Frontend (trình duyệt) ↔ Backend qua HTTP/SSE:
+
+- **FastAPI Backend** (`main.py`) — điều phối HTTP/SSE, quản lý vòng đời ứng dụng.
+- **Dialog Manager** (`app/chatbot/dialog_manager.py`) — "bộ não" điều phối hội thoại, lưu bối cảnh,
+  gọi các module khác.
+- **NLP** (`app/nlp/`) — bóc tách đề từ ngôn ngữ tự nhiên (parser luật + LLM), đọc đề từ ảnh, diễn giải.
+- **Solver** (`app/solver/`) — cài đặt 7 thuật toán LP; nơi bảo đảm **tính đúng đắn** và sinh
+  **lời giải từng bước**.
+
+---
+
+## 🚀 Cài đặt nhanh
+
+> **Yêu cầu:** một khoá `OPENAI_API_KEY` hợp lệ (cho NLP/OCR). Copy `.env.example` → `.env` và điền cấu hình.
+
+<details open>
+<summary><b>Cách 1 — Docker (khuyên dùng)</b></summary>
 
 ```bash
-# Build và chạy ngầm các container (bao gồm Web app và Redis)
-docker-compose up -d --build
-
-# Xem log xem hệ thống khởi động thành công chưa
-docker-compose logs -f
+docker-compose up -d --build      # build & chạy ngầm (web app + Redis)
+docker-compose logs -f            # xem log khởi động
 ```
-Ứng dụng sẽ khả dụng tại trình duyệt: `http://localhost:8000`
+Ứng dụng chạy tại 👉 `http://localhost:8000`
+</details>
 
-### Cách 2: Chạy trực tiếp tại Local (Môi trường Python)
+<details>
+<summary><b>Cách 2 — Chạy trực tiếp (Python + React)</b></summary>
 
 ```bash
-# 1. Tạo môi trường ảo
+# Backend (FastAPI)
 python -m venv venv
-
-# 2. Kích hoạt môi trường ảo
-# Trên Windows:
-.\\venv\\Scripts\\activate
-# Trên macOS/Linux:
-source venv/bin/activate
-
-# 3. Cài đặt các thư viện phụ thuộc
+# Windows:        .\venv\Scripts\activate
+# macOS/Linux:    source venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Khởi động server FastAPI backend
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-Truy cập ứng dụng tại `http://localhost:8000`.
 
-## 5. Cấu trúc thư mục dự án
+# Frontend (React) — build 1 lần để FastAPI phục vụ SPA tại /app/
+cd frontend
+npm install
+npm run build        # xuất ra ../static/app
+# HOẶC dev hot-reload (cần backend ở cổng 8000): npm run dev  → http://localhost:5173
+```
+Truy cập `http://localhost:8000` (tự chuyển hướng tới `/app/`).
+Cấu hình LLM/proxy trong [.env.example](.env.example): `OPENAI_API_KEY`/`API_KEY`,
+`OPENAI_BASE_URL`/`BASE_URL`, `MODEL_NAME`.
+</details>
+
+---
+
+## 📁 Cấu trúc thư mục
 
 ```text
 LP_CHATBOT/
 ├── app/
-│   ├── api/            # Định nghĩa các HTTP router endpoints (REST)
-│   ├── chatbot/        # Chứa Dialog Manager, quản lý session và file Frontend (templates/)
-│   ├── core/           # Cấu hình hệ thống chung (Settings) và các hằng số
-│   ├── nlp/            # Xử lý ngôn ngữ tự nhiên, giao tiếp OpenAI API và Prompt templates
-│   └── solver/         # Chứa logic thuật toán (Simplex, SciPy, PuLP) và classes chuẩn hóa model
-├── logs/               # Nơi lưu trữ file log của server chạy thực tế
-├── tests/              # Chứa các unit test suites bằng `pytest`
-├── .env.example        # File mẫu thiết lập biến môi trường
-├── docker-compose.yml  # Cấu hình chạy Docker nhiều containers
-├── Dockerfile          # Image build file cho ứng dụng Backend FastAPI
-├── main.py             # Entrypoint chính khởi động Uvicorn App
-├── requirements.txt    # Danh sách các pip dependencies phụ thuộc
-└── Makefile            # Tập hợp lệnh macro thao tác nhanh (build, test, run)
+│   ├── api/        # HTTP router endpoints (REST)
+│   ├── chatbot/    # Dialog Manager, quản lý session
+│   ├── core/       # Cấu hình (Settings), hằng số
+│   ├── nlp/        # Xử lý ngôn ngữ tự nhiên, OpenAI API, prompt templates
+│   └── solver/     # 7 thuật toán LP + chuẩn hoá mô hình
+├── frontend/       # Giao diện React (Vite + Tailwind)
+├── demo/           # Video & GIF demo + script quay tự động
+├── tests/          # Bộ test pytest
+├── docker-compose.yml · Dockerfile · main.py · requirements.txt · Makefile
 ```
 
-## 6. Cách chạy Test (Kiểm thử)
+---
 
-Dự án sử dụng module `pytest` để đảm bảo độ chính xác của các thuật toán toán học và luồng API.
+## 🧪 Kiểm thử
 
 ```bash
-# Chạy toàn bộ bộ test case trong dự án
-pytest
-
-# Chạy test với output chi tiết (xem rõ từng test function gõ/đậu)
-pytest -v
-
-# Chạy test chỉ định riêng cho phần thuật toán Toán Học Simplex và API
-pytest tests/test_solver.py tests/test_api.py -q --tb=short
+pytest                                   # toàn bộ test
+pytest -v                                # chi tiết từng test
+pytest tests/test_solver.py -q --tb=short
 ```
+
+Các bộ giải tự cài đặt được **đối chiếu với PuLP CBC** (oracle) trên 16 họ bài toán →
+**0 sai lệch** về trạng thái và giá trị tối ưu.
+
+---
+
+<div align="center">
+<sub>Đồ án môn Quy hoạch tuyến tính · Khoa Toán – Tin học · ĐH Khoa học Tự nhiên (HCMUS)</sub>
+</div>

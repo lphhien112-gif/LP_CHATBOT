@@ -3,14 +3,27 @@ __pycache__/
 *.pyc
 .env
 venv/
-# Test outputs
-# test_outputs/
+
+# Frontend (React/Vite)
+frontend/node_modules/
+frontend/dist/
+# Build artifact của SPA (sinh ra bởi `npm run build`)
+static/app/
+# Test outputs (artifact sinh ra bởi scripts/e2e_backend_test.py)
+test_outputs/
 test_results.md
 test_backend_output.txt
 INPUTS.txt
 walkthrough.md
 memory/
 review/
+# Báo cáo đồ án — chứa thông tin cá nhân (tên, MSSV); KHÔNG commit lên repo public
+report/
+
+# Demo — file trung gian khi quay video (chỉ giữ demo/assets/ đã xuất)
+demo/raw/
+demo/_frames/
+
 # IDE files
 .vscode/
 .idea/
